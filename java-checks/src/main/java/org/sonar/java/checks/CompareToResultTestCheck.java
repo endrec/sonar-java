@@ -31,6 +31,7 @@ import org.sonar.plugins.java.api.tree.ExpressionTree;
 import org.sonar.plugins.java.api.tree.IdentifierTree;
 import org.sonar.plugins.java.api.tree.LiteralTree;
 import org.sonar.plugins.java.api.tree.MethodInvocationTree;
+import org.sonar.plugins.java.api.tree.MethodTree;
 import org.sonar.plugins.java.api.tree.Tree;
 import org.sonar.plugins.java.api.tree.Tree.Kind;
 import org.sonar.plugins.java.api.tree.UnaryExpressionTree;
@@ -66,8 +67,8 @@ public class CompareToResultTestCheck extends SubscriptionBaseVisitor {
   }
 
   private boolean isInvalidTest(ExpressionTree operand1, ExpressionTree operand2) {
-    return isNonZeroInt(operand1) && isCompareToResult(operand2)
-      || isNonZeroInt(operand2) && isCompareToResult(operand1);
+    return (isNonZeroInt(operand1) && isCompareToResult(operand2))
+      || (isNonZeroInt(operand2) && isCompareToResult(operand1));
   }
 
   private boolean isCompareToResult(ExpressionTree expression) {
@@ -91,16 +92,16 @@ public class CompareToResultTestCheck extends SubscriptionBaseVisitor {
   }
 
   private boolean isIdentifierContainingCompareToResult(IdentifierTree identifier) {
-    Symbol variableSymbol = getSemanticModel().getReference(identifier);
-    if (variableSymbol == null) {
+    Symbol variableSymbol = identifier.symbol();
+    if (!variableSymbol.isVariableSymbol()) {
       return false;
     }
-    VariableTree variableDefinition = (VariableTree) getSemanticModel().getTree(variableSymbol);
+    VariableTree variableDefinition = ((Symbol.VariableSymbol) variableSymbol).declaration();
     if (variableDefinition != null) {
       ExpressionTree initializer = variableDefinition.initializer();
       if (initializer != null && initializer.is(Tree.Kind.METHOD_INVOCATION) && variableSymbol.owner().isMethodSymbol()) {
-        Tree method = getSemanticModel().getTree(variableSymbol.owner());
-        return isCompareToInvocation((MethodInvocationTree) initializer) && !isReassigned(variableSymbol, method);
+        MethodTree method = ((Symbol.MethodSymbol) variableSymbol.owner()).declaration();
+        return method != null && isCompareToInvocation((MethodInvocationTree) initializer) && !isReassigned(variableSymbol, method);
       }
     }
     return false;
@@ -108,7 +109,7 @@ public class CompareToResultTestCheck extends SubscriptionBaseVisitor {
 
   private boolean isNonZeroInt(ExpressionTree expression) {
     return isNonZeroIntLiteral(expression)
-      || expression.is(Tree.Kind.UNARY_MINUS) && isNonZeroIntLiteral(((UnaryExpressionTree) expression).expression());
+      || (expression.is(Tree.Kind.UNARY_MINUS) && isNonZeroIntLiteral(((UnaryExpressionTree) expression).expression()));
   }
 
   private boolean isNonZeroIntLiteral(ExpressionTree expression) {
@@ -116,7 +117,7 @@ public class CompareToResultTestCheck extends SubscriptionBaseVisitor {
   }
   
   private boolean isReassigned(Symbol variableSymbol, Tree method) {
-    Collection<IdentifierTree> usages = getSemanticModel().getUsages(variableSymbol);
+    Collection<IdentifierTree> usages = variableSymbol.usages();
     ReAssignmentFinder reAssignmentFinder = new ReAssignmentFinder(usages);
     method.accept(reAssignmentFinder);
     return reAssignmentFinder.foundReAssignment;

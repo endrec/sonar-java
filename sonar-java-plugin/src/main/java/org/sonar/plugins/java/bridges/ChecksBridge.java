@@ -30,25 +30,28 @@ import org.sonar.api.resources.Project;
 import org.sonar.api.resources.Resource;
 import org.sonar.api.rule.RuleKey;
 import org.sonar.api.rules.ActiveRule;
+import org.sonar.java.SonarComponents;
 import org.sonar.java.checks.CheckList;
 import org.sonar.java.checks.PackageInfoCheck;
+import org.sonar.plugins.java.api.JavaCheck;
 import org.sonar.squidbridge.api.CheckMessage;
 import org.sonar.squidbridge.api.CodeVisitor;
 import org.sonar.squidbridge.api.SourceFile;
 
+import javax.annotation.CheckForNull;
 import java.io.File;
 import java.util.Set;
 
 public class ChecksBridge {
 
-  private final Checks<CodeVisitor> checks;
+  private final Iterable<Checks<JavaCheck>> checks;
   private final ResourcePerspectives resourcePerspectives;
   private final RulesProfile rulesProfile;
   private Set<Directory> dirsWithoutPackageInfo;
 
-  public ChecksBridge(Checks<CodeVisitor> checks, ResourcePerspectives resourcePerspectives, RulesProfile rulesProfile) {
-    this.checks = checks;
-    this.resourcePerspectives = resourcePerspectives;
+  public ChecksBridge(SonarComponents sonarComponents, RulesProfile rulesProfile) {
+    this.checks = sonarComponents.checks();
+    this.resourcePerspectives = sonarComponents.getResourcePerspectives();
     this.rulesProfile = rulesProfile;
   }
 
@@ -56,26 +59,50 @@ public class ChecksBridge {
     if (squidFile.hasCheckMessages()) {
       Issuable issuable = resourcePerspectives.as(Issuable.class, sonarFile);
       Set<CheckMessage> messages = squidFile.getCheckMessages();
-      for (CheckMessage checkMessage : messages) {
-        Object check = checkMessage.getCheck();
-        RuleKey ruleKey;
-        if (check instanceof RuleKey) {
-          // VisitorsBridge uses RuleKey
-          ruleKey = (RuleKey) check;
-        } else {
-          ruleKey = checks.ruleKey((CodeVisitor) checkMessage.getCheck());
-        }
-        if (ruleKey != null) {
-          Issue issue = issuable.newIssueBuilder()
-              .ruleKey(ruleKey)
-              .line(checkMessage.getLine())
-              .message(checkMessage.formatDefaultMessage()).build();
-          issuable.addIssue(issue);
+      if(issuable != null) {
+        for (CheckMessage checkMessage : messages) {
+          Object check = checkMessage.getCheck();
+
+          RuleKey ruleKey = getRuleKey((JavaCheck) check);
+          if (ruleKey != null) {
+            Issue issue = issuable.newIssueBuilder()
+                .ruleKey(ruleKey)
+                .line(checkMessage.getLine())
+                .message(checkMessage.formatDefaultMessage())
+                .effortToFix(checkMessage.getCost())
+                .build();
+
+            issuable.addIssue(issue);
+          } else {
+            throw new IllegalStateException("Cannot find rule key for instance of "+check.getClass());
+          }
         }
       }
       // Remove from memory:
       messages.clear();
     }
+  }
+
+  @CheckForNull
+  private RuleKey getRuleKey(JavaCheck check) {
+    for (Checks<JavaCheck> sonarChecks : checks) {
+      RuleKey ruleKey = sonarChecks.ruleKey(check);
+      if(ruleKey != null) {
+        return ruleKey;
+      }
+    }
+    return null;
+  }
+
+  @CheckForNull
+  private JavaCheck checkInstanceOf(RuleKey ruleKey) {
+    for (Checks<JavaCheck> sonarChecks : checks) {
+      JavaCheck check = sonarChecks.of(ruleKey);
+      if(check != null) {
+        return check;
+      }
+    }
+    return null;
   }
 
   public void reportIssueForPackageInfo(Directory directory, Project project) {
@@ -96,7 +123,7 @@ public class ChecksBridge {
     dirsWithoutPackageInfo = Sets.newHashSet();
     ActiveRule activeRule = rulesProfile.getActiveRule(CheckList.REPOSITORY_KEY, PackageInfoCheck.RULE_KEY);
     if (activeRule != null) {
-      CodeVisitor check = checks.of(activeRule.getRule().ruleKey());
+      CodeVisitor check = checkInstanceOf(activeRule.getRule().ruleKey());
       if (check != null) {
         Set<File> dirs = ((PackageInfoCheck) check).getDirectoriesWithoutPackageFile();
         for (File dir : dirs) {

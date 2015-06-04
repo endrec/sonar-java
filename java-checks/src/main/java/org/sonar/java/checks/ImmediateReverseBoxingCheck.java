@@ -21,11 +21,11 @@ package org.sonar.java.checks;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
 import org.sonar.api.server.rule.RulesDefinition;
 import org.sonar.check.Priority;
 import org.sonar.check.Rule;
 import org.sonar.java.checks.methods.MethodInvocationMatcher;
+import org.sonar.java.checks.methods.MethodInvocationMatcherCollection;
 import org.sonar.java.checks.methods.TypeCriteria;
 import org.sonar.plugins.java.api.semantic.Symbol;
 import org.sonar.plugins.java.api.semantic.Type;
@@ -66,8 +66,8 @@ public class ImmediateReverseBoxingCheck extends SubscriptionBaseVisitor {
     .put("java.lang.Short", "short")
     .build();
 
-  private final List<MethodInvocationMatcher> unboxingInvocationMatchers = unboxingInvocationMatchers();
-  private final List<MethodInvocationMatcher> valueOfInvocationMatchers = valueOfInvocationMatchers();
+  private final MethodInvocationMatcherCollection unboxingInvocationMatchers = unboxingInvocationMatchers();
+  private final MethodInvocationMatcherCollection valueOfInvocationMatchers = valueOfInvocationMatchers();
 
   @Override
   public List<Kind> nodesToVisit() {
@@ -90,7 +90,7 @@ public class ImmediateReverseBoxingCheck extends SubscriptionBaseVisitor {
         checkExpression(assignmentTree.expression(), assignmentTree.symbolType());
       } else {
         NewClassTree newClassTree = (NewClassTree) tree;
-        Symbol.TypeSymbolSemantic classSymbol = wrapperClassSymbol(newClassTree);
+        Symbol.TypeSymbol classSymbol = wrapperClassSymbol(newClassTree);
         if (classSymbol != null) {
           checkForUnboxing(newClassTree.arguments().get(0));
         }
@@ -118,7 +118,7 @@ public class ImmediateReverseBoxingCheck extends SubscriptionBaseVisitor {
     } else {
       Symbol symbol = methodInvocationTree.symbol();
       if (symbol.isMethodSymbol()) {
-        List<Type> parametersTypes = ((Symbol.MethodSymbolSemantic) symbol).parameterTypes();
+        List<Type> parametersTypes = ((Symbol.MethodSymbol) symbol).parameterTypes();
         checkMethodInvocationArguments(methodInvocationTree, parametersTypes);
       }
     }
@@ -138,7 +138,7 @@ public class ImmediateReverseBoxingCheck extends SubscriptionBaseVisitor {
   private void checkForBoxing(ExpressionTree expression) {
     if (expression.is(Tree.Kind.NEW_CLASS)) {
       NewClassTree newClassTree = (NewClassTree) expression;
-      Symbol.TypeSymbolSemantic classSymbol = wrapperClassSymbol(newClassTree);
+      Symbol.TypeSymbol classSymbol = wrapperClassSymbol(newClassTree);
       if (classSymbol != null) {
         ExpressionTree boxingArg = newClassTree.arguments().get(0);
         if (boxingArg.symbolType().isPrimitive()) {
@@ -154,8 +154,8 @@ public class ImmediateReverseBoxingCheck extends SubscriptionBaseVisitor {
     }
   }
 
-  private Symbol.TypeSymbolSemantic wrapperClassSymbol(NewClassTree newClassTree) {
-    Symbol.TypeSymbolSemantic classSymbol = newClassTree.symbolType().symbol();
+  private Symbol.TypeSymbol wrapperClassSymbol(NewClassTree newClassTree) {
+    Symbol.TypeSymbol classSymbol = newClassTree.symbolType().symbol();
     if (PRIMITIVE_TYPES_BY_WRAPPER.containsKey(newClassTree.symbolType().fullyQualifiedName())) {
       return classSymbol;
     }
@@ -199,8 +199,8 @@ public class ImmediateReverseBoxingCheck extends SubscriptionBaseVisitor {
     }
   }
 
-  private List<MethodInvocationMatcher> unboxingInvocationMatchers() {
-    List<MethodInvocationMatcher> matchers = Lists.newArrayList();
+  private MethodInvocationMatcherCollection unboxingInvocationMatchers() {
+    MethodInvocationMatcherCollection matchers = MethodInvocationMatcherCollection.create();
     for (String primitiveType : PRIMITIVE_TYPES_BY_WRAPPER.values()) {
       matchers.add(
         MethodInvocationMatcher.create()
@@ -210,8 +210,8 @@ public class ImmediateReverseBoxingCheck extends SubscriptionBaseVisitor {
     return matchers;
   }
 
-  private List<MethodInvocationMatcher> valueOfInvocationMatchers() {
-    List<MethodInvocationMatcher> matchers = Lists.newArrayList();
+  private MethodInvocationMatcherCollection valueOfInvocationMatchers() {
+    MethodInvocationMatcherCollection matchers = MethodInvocationMatcherCollection.create();
     for (Entry<String, String> primitiveMapping : PRIMITIVE_TYPES_BY_WRAPPER.entrySet()) {
       matchers.add(
         MethodInvocationMatcher.create()
@@ -222,21 +222,11 @@ public class ImmediateReverseBoxingCheck extends SubscriptionBaseVisitor {
     return matchers;
   }
 
-  private boolean isUnboxingMethodInvocation(MethodInvocationTree methodInvocationTree) {
-    return matchesMethodInvocation(methodInvocationTree, unboxingInvocationMatchers);
+  private boolean isUnboxingMethodInvocation(MethodInvocationTree mit) {
+    return unboxingInvocationMatchers.anyMatch(mit);
   }
 
-  private boolean isValueOfInvocation(MethodInvocationTree methodInvocationTree) {
-    return matchesMethodInvocation(methodInvocationTree, valueOfInvocationMatchers);
+  private boolean isValueOfInvocation(MethodInvocationTree mit) {
+    return valueOfInvocationMatchers.anyMatch(mit);
   }
-
-  private boolean matchesMethodInvocation(MethodInvocationTree methodInvocationTree, List<MethodInvocationMatcher> matchers) {
-    for (MethodInvocationMatcher methodInvocationMatcher : matchers) {
-      if (methodInvocationMatcher.matches(methodInvocationTree, getSemanticModel())) {
-        return true;
-      }
-    }
-    return false;
-  }
-
 }

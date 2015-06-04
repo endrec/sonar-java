@@ -68,9 +68,9 @@ class NullPointerTest {
     Object o;
 
     Object[] array1 = checkForNullField;
-    i = array1.length; // Noncompliant
+    i = array1.length; // False negative
 
-    i = checkForNullField.length; // False negative
+    i = checkForNullField.length; // False negative, instance and static fields are not checked
 
     Object[] array2 = checkForNullMethod();
     i = array2.length; // Noncompliant
@@ -83,14 +83,14 @@ class NullPointerTest {
     Object o;
 
     Object[] array1 = nullableField;
-    if (array1.length != 0) { } // Noncompliant
+    if (array1.length != 0) { } // False negative
 
     i = nullableField.length; // False negative, instance and static fields are not checked
 
     Object[] array2 = nullableMethod();
-    i = array2.length; // Noncompliant
+    i = array2.length; // Compliant
 
-    i = nullableMethod().length; // Noncompliant
+    i = nullableMethod().length; // Compliant
   }
 
   public class A {
@@ -224,7 +224,7 @@ class NullPointerTest {
     String var1 = null;
     if (var1.equals("")) { } // Noncompliant
     String var2 = nullableMethod();
-    if (var2.equals("")) { } // Noncompliant
+    if (var2.equals("")) { } // Compliant
   }
 
   public void testTry() {
@@ -280,8 +280,8 @@ class NullPointerTest {
       object = null;
     }
     object.hashCode(); // False negative
-    for(Object object = null; true; object.hashCode()) { // False negative
-      object.hashCode(); // False negative
+    for(Object object1 = null, object2 = null; true; object2.hashCode()) { // Noncompliant
+      object1.hashCode(); // Noncompliant
     }
   }
 
@@ -290,24 +290,24 @@ class NullPointerTest {
     Set<Object> set = null;
     Entry head = null;
     for(Object entry : set.values()) { // Noncompliant
-      head.hashCode(); // False negative
+      head.hashCode(); // Noncompliant
       value = null;
       value.hashCode(); // Noncompliant
     }
-    head.hashCode(); // False negative
+    head.hashCode(); // Noncompliant
     value.hashCode(); // False negative
   }
 
   public void testWhileLoop() {
     Object object1 = null, object2 = null, object3 = null;
     while(object1.hashCode()) { // Noncompliant
-      object1.hashCode(); // False negative
+      object2.hashCode(); // False negative, object2 is modified in the loop
       object2 = null;
       object2.hashCode(); // Noncompliant
      }
-    object1.hashCode(); // False negative
+    object1.hashCode(); // Compliant, issue already raised
     object2.hashCode(); // Compliant
-    object2.hashCode(); // Compliant
+    object3.hashCode(); // Noncompliant
   }
 
   public void testHoistedLoop(boolean condition) {
@@ -316,10 +316,119 @@ class NullPointerTest {
       if (condition) {
         while(condition) {
           a.hashCode(); // False negative
+          a = null;
         }
       }
     }
     a.hashCode(); // False negative
+  }
+
+  public void testInstanceField() {
+    nullableField = null;
+    nullableField.hashCode(); // False negative, instance fields are not checked
+  }
+
+  public void testSwitch() {
+    String str1 = null, str2 = null, str3 = null;
+    switch(str1) { // Noncompliant
+    case "ONE":
+      str2.length(); // Noncompliant
+    }
+    str3.length(); // Noncompliant
+  }
+
+  public void testMergeOnParameter(@Nullable Object o) {
+    if(o == null) {
+      return;
+    }
+    o.hashCode(); // Compliant, constraint is lost
+    Object a = o;
+    a.hashCode(); // Compliant
+  }
+
+  public void testAssignNullableMethod() {
+    Object object;
+    object = nullableMethod();
+    if(object.hashCode()) { } // Compliant
+    object = null;
+    if(object.hashCode()) { } // Noncompliant
+  }
+
+  public void testComplexLoop(@Nullable Object nullableObject) {
+    Object object1 = null, object11 = null, object12 = null;
+    for(int i = 0; object11 == null; i += 1) {
+      object11.hashCode(); // False negative
+      object12.hashCode(); // Noncompliant
+      nullableObject.hashCode(); // Noncompliant
+      if(i == 1) {
+        object1.hashCode(); // Compliant
+      } else if(i == 0) {
+        object1 = new Object();
+      }
+      object11 = null;
+    }
+    object1.hashCode(); // False negative
+
+    Object object2 = null, object21 = null, object22 = null;
+    int i = 0;
+    while(object21 == null) {
+      object21.hashCode(); // False negative
+      object22.hashCode(); // Noncompliant
+      nullableObject.hashCode(); // Noncompliant
+      if(i == 1) {
+        object2.hashCode(); // Compliant
+      } else if(i == 0) {
+        object2 = new Object();
+      }
+      object21 = null;
+    }
+    object2.hashCode(); // False negative
+
+    Object object3 = null;
+    int i = 0;
+    do {
+      if(i == 1) {
+        object3.hashCode(); // False negative
+      } else if(i == 0) {
+        object3 = new Object();
+      }
+    } while (condition);
+    object3.hashCode(); // False negative
+  }
+
+  void testComplexSwitch(String str) {
+    Object object1 = null, object2 = null, object3 = null, object4 = new Object();
+    switch(str) {
+    case "ONE":
+      object1 = new Object();
+      break;
+    case "TWO":
+      object1.hashCode(); // False negative
+      break;
+    case "THREE":
+      object2 = new Object();
+    case "FOUR":
+      object2.hashCode(); // Compliant
+      break;
+    case "FIVE":
+      object3.hashCode(); // Noncompliant
+      object4 = null;
+    case "SIX":
+      object4.hashCode(); // False negative
+    }
+  }
+
+  public static class LinkedListEntry {
+    @Nullable
+    LinkedList parent() {
+      return null;
+    }
+  }
+
+  public void testAssignSelfMember() {
+    LinkedListEntry entry1 = entry1.parent(); // Compliant
+    LinkedListEntry entry2;
+    entry2 = entry2.parent(); // Compliant
   }
 
   @interface CoverageAnnotation {

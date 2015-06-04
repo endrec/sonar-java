@@ -26,16 +26,18 @@ import com.sonar.sslr.api.AstNode;
 import org.sonar.java.model.InternalSyntaxToken;
 import org.sonar.java.model.JavaTree;
 import org.sonar.java.model.expression.IdentifierTreeImpl;
-import org.sonar.java.resolve.Symbol;
+import org.sonar.java.resolve.JavaSymbol;
 import org.sonar.plugins.java.api.tree.ExpressionTree;
 import org.sonar.plugins.java.api.tree.IdentifierTree;
 import org.sonar.plugins.java.api.tree.InferedTypeTree;
 import org.sonar.plugins.java.api.tree.ModifiersTree;
+import org.sonar.plugins.java.api.tree.SyntaxToken;
 import org.sonar.plugins.java.api.tree.Tree;
 import org.sonar.plugins.java.api.tree.TreeVisitor;
 import org.sonar.plugins.java.api.tree.TypeTree;
 import org.sonar.plugins.java.api.tree.VariableTree;
 
+import javax.annotation.CheckForNull;
 import javax.annotation.Nullable;
 
 import java.util.Iterator;
@@ -47,9 +49,11 @@ public class VariableTreeImpl extends JavaTree implements VariableTree {
   private IdentifierTree simpleName;
   @Nullable
   private ExpressionTree initializer;
+  @Nullable
+  private SyntaxToken endToken;
 
   // FIXME(Godin): never should be null, i.e. should have default value
-  private Symbol.VariableSymbol symbol;
+  private JavaSymbol.VariableJavaSymbol symbol;
 
   // Syntax tree holders
   private int dims;
@@ -187,11 +191,11 @@ public class VariableTreeImpl extends JavaTree implements VariableTree {
     visitor.visitVariable(this);
   }
 
-  public Symbol.VariableSymbol getSymbol() {
+  public JavaSymbol.VariableJavaSymbol getSymbol() {
     return symbol;
   }
 
-  public void setSymbol(Symbol.VariableSymbol symbol) {
+  public void setSymbol(JavaSymbol.VariableJavaSymbol symbol) {
     Preconditions.checkState(this.symbol == null);
     this.symbol = symbol;
   }
@@ -209,5 +213,15 @@ public class VariableTreeImpl extends JavaTree implements VariableTree {
       simpleName,
       initializer
       );
+  }
+
+  @CheckForNull
+  @Override
+  public SyntaxToken endToken() {
+    return endToken;
+  }
+
+  public void setEndToken(SyntaxToken endToken) {
+    this.endToken = endToken;
   }
 }

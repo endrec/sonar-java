@@ -23,6 +23,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Iterators;
 import com.sonar.sslr.api.AstNode;
 import org.sonar.java.model.AbstractTypedTree;
+import org.sonar.java.resolve.Symbols;
 import org.sonar.plugins.java.api.semantic.Symbol;
 import org.sonar.plugins.java.api.tree.ExpressionTree;
 import org.sonar.plugins.java.api.tree.MethodInvocationTree;
@@ -42,13 +43,19 @@ public class MethodInvocationTreeImpl extends AbstractTypedTree implements Metho
   private final List<ExpressionTree> arguments;
   @Nullable
   private TypeArguments typeArguments;
-  private Symbol symbol;
+  private Symbol symbol = Symbols.unknownSymbol;
+  private SyntaxToken openParenToken;
+  private SyntaxToken closeParenToken;
 
-  public MethodInvocationTreeImpl(ExpressionTree methodSelect, @Nullable TypeArguments typeArguments, List<ExpressionTree> arguments, AstNode... children) {
+  public MethodInvocationTreeImpl(ExpressionTree methodSelect, @Nullable TypeArguments typeArguments,
+    SyntaxToken openParenToken, List<ExpressionTree> arguments, SyntaxToken closeParenToken,
+    AstNode... children) {
     super(Kind.METHOD_INVOCATION);
     this.methodSelect = Preconditions.checkNotNull(methodSelect);
     this.typeArguments = typeArguments;
     this.arguments = Preconditions.checkNotNull(arguments);
+    this.openParenToken = openParenToken;
+    this.closeParenToken = closeParenToken;
 
     for (AstNode child : children) {
       addChild(child);
@@ -72,7 +79,7 @@ public class MethodInvocationTreeImpl extends AbstractTypedTree implements Metho
 
   @Override
   public SyntaxToken openParenToken() {
-    throw new UnsupportedOperationException();
+    return openParenToken;
   }
 
   @Override
@@ -82,7 +89,7 @@ public class MethodInvocationTreeImpl extends AbstractTypedTree implements Metho
 
   @Override
   public SyntaxToken closeParenToken() {
-    throw new UnsupportedOperationException();
+    return closeParenToken;
   }
 
   @Override
@@ -105,7 +112,7 @@ public class MethodInvocationTreeImpl extends AbstractTypedTree implements Metho
   }
 
   public void setSymbol(Symbol symbol) {
-    Preconditions.checkState(this.symbol == null);
+    Preconditions.checkState(this.symbol.equals(Symbols.unknownSymbol));
     this.symbol = symbol;
   }
 }

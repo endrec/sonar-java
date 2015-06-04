@@ -36,7 +36,7 @@ import javax.annotation.Nullable;
  * @since Java 1.3
  */
 @Beta
-public interface ImportTree extends Tree {
+public interface ImportTree extends ImportClauseTree {
 
   /**
    * @since Java 1.5

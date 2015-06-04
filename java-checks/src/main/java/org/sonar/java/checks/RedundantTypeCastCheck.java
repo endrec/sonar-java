@@ -24,8 +24,7 @@ import com.google.common.collect.Sets;
 import org.sonar.api.server.rule.RulesDefinition;
 import org.sonar.check.Priority;
 import org.sonar.check.Rule;
-import org.sonar.java.resolve.Type;
-import org.sonar.java.resolve.Types;
+import org.sonar.java.resolve.JavaType;
 import org.sonar.plugins.java.api.JavaFileScannerContext;
 import org.sonar.plugins.java.api.tree.ExpressionTree;
 import org.sonar.plugins.java.api.tree.MethodInvocationTree;
@@ -68,10 +67,9 @@ public class RedundantTypeCastCheck extends SubscriptionBaseVisitor {
       addArgsToExclusion(tree);
     } else if (!excluded.contains(tree)) {
       TypeCastTree typeCastTree = (TypeCastTree) tree;
-      Type cast = (Type) typeCastTree.type().symbolType();
-      Type expressionType = (Type) typeCastTree.expression().symbolType();
-      Types types = new Types();
-      if (!isExcluded(cast, expressionType) && (isRedundantNumericalCast(cast, expressionType) || isRedundantCast(cast, expressionType, types))) {
+      JavaType cast = (JavaType) typeCastTree.type().symbolType();
+      JavaType expressionType = (JavaType) typeCastTree.expression().symbolType();
+      if (!isExcluded(cast) && (isRedundantNumericalCast(cast, expressionType) || isRedundantCast(cast, expressionType))) {
         addIssue(tree, "Remove this unnecessary cast to \"" + cast + "\".");
       }
     }
@@ -93,19 +91,19 @@ public class RedundantTypeCastCheck extends SubscriptionBaseVisitor {
     }
   }
 
-  private boolean isExcluded(Type cast, Type expressionType) {
+  private boolean isExcluded(JavaType cast) {
     return cast.isUnknown();
   }
 
-  private boolean isRedundantCast(Type cast, Type expressionType, Types types) {
-    Type erasedExpressionType = expressionType;
-    if(erasedExpressionType.isTagged(Type.TYPEVAR)) {
+  private boolean isRedundantCast(JavaType cast, JavaType expressionType) {
+    JavaType erasedExpressionType = expressionType;
+    if(erasedExpressionType.isTagged(JavaType.TYPEVAR)) {
       erasedExpressionType = erasedExpressionType.erasure();
     }
-    return !cast.isNumerical() && types.isSubtype(erasedExpressionType, cast);
+    return erasedExpressionType.equals(cast) || (!(cast instanceof JavaType.ParametrizedTypeJavaType) && !cast.isNumerical() && erasedExpressionType.isSubtypeOf(cast));
   }
 
-  private boolean isRedundantNumericalCast(Type cast, Type expressionType) {
-    return cast.isNumerical() && cast == expressionType;
+  private boolean isRedundantNumericalCast(JavaType cast, JavaType expressionType) {
+    return cast.isNumerical() && cast.equals(expressionType);
   }
 }

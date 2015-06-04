@@ -26,10 +26,10 @@ import org.sonar.api.server.rule.RulesDefinition;
 import org.sonar.check.Priority;
 import org.sonar.check.Rule;
 import org.sonar.java.model.LiteralUtils;
-import org.sonar.java.resolve.AnnotationValue;
-import org.sonar.java.resolve.Symbol.TypeSymbol;
-import org.sonar.java.resolve.Type.ClassType;
+import org.sonar.java.resolve.JavaSymbol.TypeJavaSymbol;
+import org.sonar.java.resolve.JavaType.ClassJavaType;
 import org.sonar.plugins.java.api.semantic.Symbol;
+import org.sonar.plugins.java.api.semantic.SymbolMetadata;
 import org.sonar.plugins.java.api.semantic.Type;
 import org.sonar.plugins.java.api.tree.ClassTree;
 import org.sonar.plugins.java.api.tree.LiteralTree;
@@ -62,9 +62,9 @@ public class SerialVersionUidCheck extends SubscriptionBaseVisitor {
   }
 
   private void visitClassTree(ClassTree classTree) {
-    Symbol.TypeSymbolSemantic symbol = classTree.symbol();
+    Symbol.TypeSymbol symbol = classTree.symbol();
     if (!isAnonymous(classTree) && isSerializable(symbol.type())) {
-      Symbol.VariableSymbolSemantic serialVersionUidSymbol = findSerialVersionUid(symbol);
+      Symbol.VariableSymbol serialVersionUidSymbol = findSerialVersionUid(symbol);
       if (serialVersionUidSymbol == null) {
         if (!isExclusion(symbol)) {
           addIssue(classTree, "Add a \"static final long serialVersionUID\" field to this class.");
@@ -79,7 +79,7 @@ public class SerialVersionUidCheck extends SubscriptionBaseVisitor {
     return classTree.simpleName() == null;
   }
 
-  private void checkModifiers(org.sonar.plugins.java.api.semantic.Symbol.VariableSymbolSemantic serialVersionUidSymbol) {
+  private void checkModifiers(Symbol.VariableSymbol serialVersionUidSymbol) {
     List<String> missingModifiers = Lists.newArrayList();
     if (!serialVersionUidSymbol.isStatic()) {
       missingModifiers.add("static");
@@ -90,16 +90,16 @@ public class SerialVersionUidCheck extends SubscriptionBaseVisitor {
     if (!serialVersionUidSymbol.type().is("long")) {
       missingModifiers.add("long");
     }
-    if (!missingModifiers.isEmpty()) {
-      Tree tree = getSemanticModel().getTree(serialVersionUidSymbol);
+    Tree tree = serialVersionUidSymbol.declaration();
+    if (tree != null && !missingModifiers.isEmpty()) {
       addIssue(tree, "Make this \"serialVersionUID\" field \"" + Joiner.on(' ').join(missingModifiers) + "\".");
     }
   }
 
-  private Symbol.VariableSymbolSemantic findSerialVersionUid(Symbol.TypeSymbolSemantic symbol) {
+  private Symbol.VariableSymbol findSerialVersionUid(Symbol.TypeSymbol symbol) {
     for (Symbol member : symbol.lookupSymbols("serialVersionUID")) {
       if (member.isVariableSymbol()) {
-        return (Symbol.VariableSymbolSemantic) member;
+        return (Symbol.VariableSymbol) member;
       }
     }
     return null;
@@ -109,16 +109,16 @@ public class SerialVersionUidCheck extends SubscriptionBaseVisitor {
     return type.isSubtypeOf("java.io.Serializable");
   }
 
-  private boolean isExclusion(Symbol.TypeSymbolSemantic symbol) {
+  private boolean isExclusion(Symbol.TypeSymbol symbol) {
     return symbol.isAbstract()
       || symbol.type().isSubtypeOf("java.lang.Throwable")
-      || isGuiClass((TypeSymbol) symbol)
-      || hasSuppressWarningAnnotation((TypeSymbol) symbol);
+      || isGuiClass((TypeJavaSymbol) symbol)
+      || hasSuppressWarningAnnotation((TypeJavaSymbol) symbol);
   }
 
-  private boolean isGuiClass(TypeSymbol symbol) {
-    for (ClassType superType : symbol.superTypes()) {
-      TypeSymbol superTypeSymbol = superType.getSymbol();
+  private boolean isGuiClass(TypeJavaSymbol symbol) {
+    for (ClassJavaType superType : symbol.superTypes()) {
+      TypeJavaSymbol superTypeSymbol = superType.getSymbol();
       if (hasGuiPackage(superTypeSymbol)) {
         return true;
       }
@@ -126,15 +126,15 @@ public class SerialVersionUidCheck extends SubscriptionBaseVisitor {
     return hasGuiPackage(symbol) || (!symbol.equals(symbol.outermostClass()) && isGuiClass(symbol.outermostClass()));
   }
 
-  private boolean hasGuiPackage(TypeSymbol superTypeSymbol) {
+  private boolean hasGuiPackage(TypeJavaSymbol superTypeSymbol) {
     String fullyQualifiedName = superTypeSymbol.getFullyQualifiedName();
     return fullyQualifiedName.startsWith("javax.swing.") || fullyQualifiedName.startsWith("java.awt.");
   }
 
-  private boolean hasSuppressWarningAnnotation(TypeSymbol symbol) {
-    List<AnnotationValue> annotations = symbol.metadata().getValuesFor("java.lang.SuppressWarnings");
+  private boolean hasSuppressWarningAnnotation(TypeJavaSymbol symbol) {
+    List<SymbolMetadata.AnnotationValue> annotations = symbol.metadata().valuesForAnnotation("java.lang.SuppressWarnings");
     if (annotations != null) {
-      for (AnnotationValue annotationValue : annotations) {
+      for (SymbolMetadata.AnnotationValue annotationValue : annotations) {
         if ("serial".equals(stringLiteralValue(annotationValue.value()))) {
           return true;
         }

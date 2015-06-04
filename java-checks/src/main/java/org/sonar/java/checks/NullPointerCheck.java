@@ -20,22 +20,21 @@
 package org.sonar.java.checks;
 
 import com.google.common.annotations.VisibleForTesting;
-import org.sonar.api.rule.RuleKey;
 import org.sonar.api.server.rule.RulesDefinition;
 import org.sonar.check.Priority;
 import org.sonar.check.Rule;
-import org.sonar.java.model.expression.IdentifierTreeImpl;
-import org.sonar.java.resolve.AnnotationInstance;
+import org.sonar.java.resolve.JavaSymbol;
+import org.sonar.java.resolve.JavaSymbol.MethodJavaSymbol;
 import org.sonar.java.resolve.SemanticModel;
-import org.sonar.java.resolve.Symbol.MethodSymbol;
-import org.sonar.java.resolve.Symbol.VariableSymbol;
 import org.sonar.plugins.java.api.JavaFileScanner;
 import org.sonar.plugins.java.api.JavaFileScannerContext;
 import org.sonar.plugins.java.api.semantic.Symbol;
+import org.sonar.plugins.java.api.semantic.Symbol.VariableSymbol;
 import org.sonar.plugins.java.api.tree.ArrayAccessExpressionTree;
 import org.sonar.plugins.java.api.tree.AssignmentExpressionTree;
 import org.sonar.plugins.java.api.tree.BaseTreeVisitor;
 import org.sonar.plugins.java.api.tree.BinaryExpressionTree;
+import org.sonar.plugins.java.api.tree.CaseGroupTree;
 import org.sonar.plugins.java.api.tree.CatchTree;
 import org.sonar.plugins.java.api.tree.ClassTree;
 import org.sonar.plugins.java.api.tree.CompilationUnitTree;
@@ -44,19 +43,21 @@ import org.sonar.plugins.java.api.tree.DoWhileStatementTree;
 import org.sonar.plugins.java.api.tree.ExpressionTree;
 import org.sonar.plugins.java.api.tree.ForEachStatement;
 import org.sonar.plugins.java.api.tree.ForStatementTree;
+import org.sonar.plugins.java.api.tree.IdentifierTree;
 import org.sonar.plugins.java.api.tree.IfStatementTree;
 import org.sonar.plugins.java.api.tree.MemberSelectExpressionTree;
 import org.sonar.plugins.java.api.tree.MethodInvocationTree;
 import org.sonar.plugins.java.api.tree.MethodTree;
+import org.sonar.plugins.java.api.tree.SwitchStatementTree;
 import org.sonar.plugins.java.api.tree.Tree;
 import org.sonar.plugins.java.api.tree.TryStatementTree;
 import org.sonar.plugins.java.api.tree.VariableTree;
 import org.sonar.plugins.java.api.tree.WhileStatementTree;
+import org.sonar.squidbridge.annotations.ActivatedByDefault;
 import org.sonar.squidbridge.annotations.SqaleConstantRemediation;
 import org.sonar.squidbridge.annotations.SqaleSubCharacteristic;
 
 import javax.annotation.Nullable;
-
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -68,12 +69,14 @@ import java.util.Set;
   name = "Null pointers should not be dereferenced",
   tags = {"bug", "cert", "cwe", "owasp-a1", "owasp-a2", "owasp-a6", "security"},
   priority = Priority.BLOCKER)
-@SqaleSubCharacteristic(RulesDefinition.SubCharacteristics.ERRORS)
-@SqaleConstantRemediation("20min")
+@ActivatedByDefault
+@SqaleSubCharacteristic(RulesDefinition.SubCharacteristics.LOGIC_RELIABILITY)
+@SqaleConstantRemediation("10min")
 public class NullPointerCheck extends BaseTreeVisitor implements JavaFileScanner {
 
-  public static final String KEY = "S2259";
-  private static final RuleKey RULE_KEY = RuleKey.of(CheckList.REPOSITORY_KEY, KEY);
+  private static final String MESSAGE_NULLABLE_EXPRESSION = "NullPointerException might be thrown as '%s' is nullable here";
+
+  private static final String MESSAGE_NULL_LITERAL = "null is dereferenced";
 
   @Nullable
   private ConditionalState currentConditionalState;
@@ -92,20 +95,19 @@ public class NullPointerCheck extends BaseTreeVisitor implements JavaFileScanner
 
   @Override
   public void visitArrayAccessExpression(ArrayAccessExpressionTree tree) {
-    checkForIssue(tree.expression());
+    checkForIssue(tree.expression(), MESSAGE_NULLABLE_EXPRESSION, MESSAGE_NULL_LITERAL);
     super.visitArrayAccessExpression(tree);
   }
 
   @Override
   public void visitAssignmentExpression(AssignmentExpressionTree tree) {
-    // currently we only handle assignment of the form: identifier =
-    // TODO(merciesa): array[expr] = and mse.identifier = requires advanced tracking and are left outside of the scope
-    if (tree.variable().is(Tree.Kind.IDENTIFIER)) {
-      VariableSymbol identifierSymbol = (VariableSymbol) semanticModel.getReference((IdentifierTreeImpl) tree.variable());
-      AbstractValue value = tree.expression().is(Tree.Kind.NULL_LITERAL) ? AbstractValue.NULL : AbstractValue.UNKNOWN;
-      currentState.setVariableValue(identifierSymbol, value);
-    }
     super.visitAssignmentExpression(tree);
+    if (tree.variable().is(Tree.Kind.IDENTIFIER)) {
+      Symbol identifierSymbol = ((IdentifierTree) tree.variable()).symbol();
+      if (identifierSymbol.isVariableSymbol()) {
+        currentState.setVariableValue((VariableSymbol) identifierSymbol, checkNullity(tree.expression()));
+      }
+    }
   }
 
   @Override
@@ -154,10 +156,10 @@ public class NullPointerCheck extends BaseTreeVisitor implements JavaFileScanner
 
   @Override
   public void visitDoWhileStatement(DoWhileStatementTree tree) {
-    currentState.invalidateValuesOfHierarchy();
+    currentState.invalidateVariables(new AssignmentVisitor().findAssignedVariables(tree.statement()));
     currentState = new State(currentState);
     scan(tree.statement());
-    visitCondition(tree.condition());
+    scan(tree.condition());
     restorePreviousState();
   }
 
@@ -165,17 +167,20 @@ public class NullPointerCheck extends BaseTreeVisitor implements JavaFileScanner
   public void visitForStatement(ForStatementTree tree) {
     scan(tree.initializer());
     ConditionalState conditionalState = visitCondition(tree.condition());
-    currentState.invalidateValuesOfHierarchy();
+    Set<VariableSymbol> assignedVariables = new AssignmentVisitor().findAssignedVariables(tree.statement());
+    assignedVariables.addAll(new AssignmentVisitor().findAssignedVariables(tree.update()));
     currentState = conditionalState.trueState;
+    currentState.invalidateVariables(assignedVariables);
     scan(tree.statement());
     scan(tree.update());
     restorePreviousState();
+    currentState.invalidateVariables(assignedVariables);
   }
 
   @Override
   public void visitForEachStatement(ForEachStatement tree) {
     scan(tree.expression());
-    currentState.invalidateValuesOfHierarchy();
+    currentState.invalidateVariables(new AssignmentVisitor().findAssignedVariables(tree.statement()));
     currentState = new State(currentState);
     scan(tree.statement());
     restorePreviousState();
@@ -195,7 +200,7 @@ public class NullPointerCheck extends BaseTreeVisitor implements JavaFileScanner
 
   @Override
   public void visitMemberSelectExpression(MemberSelectExpressionTree tree) {
-    checkForIssue(tree.expression());
+    checkForIssue(tree.expression(), MESSAGE_NULLABLE_EXPRESSION, MESSAGE_NULL_LITERAL);
     super.visitMemberSelectExpression(tree);
   }
 
@@ -211,20 +216,33 @@ public class NullPointerCheck extends BaseTreeVisitor implements JavaFileScanner
   public void visitMethodInvocation(MethodInvocationTree tree) {
     Symbol symbol = tree.symbol();
     if (symbol.isMethodSymbol()) {
-      MethodSymbol methodSymbol = (MethodSymbol) symbol;
-      List<org.sonar.java.resolve.Symbol> parameters = methodSymbol.getParameters().scopeSymbols();
-      // FIXME(merciesa): in some cases (method overloading with parameterized methods) a method symbol without parameter can be called with
-      // arguments.
-      if (parameters.size() != 0) {
+      MethodJavaSymbol methodSymbol = (MethodJavaSymbol) symbol;
+      List<JavaSymbol> parameters = methodSymbol.getParameters().scopeSymbols();
+      if (!parameters.isEmpty()) {
         for (int i = 0; i < tree.arguments().size(); i += 1) {
           // in case of varargs, there could be more arguments than parameters. in that case, pick the last parameter.
           if (checkNullity(parameters.get(i < parameters.size() ? i : parameters.size() - 1)) == AbstractValue.NOTNULL) {
-            this.checkForIssue(tree.arguments().get(i));
+            this.checkForIssue(tree.arguments().get(i),
+              String.format("'%%s' is nullable here and method '%s' does not accept nullable argument", methodSymbol.name()),
+              String.format("method '%s' does not accept nullable argument", methodSymbol.name()));
           }
         }
       }
     }
     super.visitMethodInvocation(tree);
+  }
+
+  @Override
+  public void visitSwitchStatement(SwitchStatementTree tree) {
+    checkForIssue(tree.expression(), MESSAGE_NULLABLE_EXPRESSION, MESSAGE_NULL_LITERAL);
+    scan(tree.expression());
+    Set<VariableSymbol> variables = new AssignmentVisitor().findAssignedVariables(tree.cases());
+    currentState.invalidateVariables(variables);
+    for (CaseGroupTree caseTree : tree.cases()) {
+      currentState = new State(currentState);
+      scan(caseTree);
+      restorePreviousState();
+    }
   }
 
   @Override
@@ -250,43 +268,34 @@ public class NullPointerCheck extends BaseTreeVisitor implements JavaFileScanner
   public void visitVariable(VariableTree tree) {
     // skips modifiers (annotations) and type.
     if (tree.initializer() != null) {
-      currentState.setVariableValue((VariableSymbol) tree.symbol(), checkNullity(tree.initializer()));
       scan(tree.initializer());
+      currentState.setVariableValue((VariableSymbol) tree.symbol(), checkNullity(tree.initializer()));
     }
   }
 
   @Override
   public void visitWhileStatement(WhileStatementTree tree) {
     ConditionalState conditionalState = visitCondition(tree.condition());
-    currentState.invalidateValuesOfHierarchy();
+    Set<VariableSymbol> assignedVariables = new AssignmentVisitor().findAssignedVariables(tree.statement());
     currentState = conditionalState.trueState;
+    currentState.invalidateVariables(assignedVariables);
     scan(tree.statement());
     restorePreviousState();
+    currentState.invalidateVariables(assignedVariables);
   }
 
   private AbstractValue checkNullity(Symbol symbol) {
-    for (AnnotationInstance annotation : ((org.sonar.java.resolve.Symbol) symbol).metadata().annotations()) {
-      if (annotation.isTyped("javax.annotation.Nonnull")) {
-        return AbstractValue.NOTNULL;
-      }
-      if (annotation.isTyped("javax.annotation.CheckForNull") || annotation.isTyped("javax.annotation.Nullable")) {
-        return AbstractValue.NULL;
-      }
+    if (symbol.metadata().isAnnotatedWith("javax.annotation.Nonnull")) {
+      return AbstractValue.NOTNULL;
+    } else if (symbol.metadata().isAnnotatedWith("javax.annotation.CheckForNull")) {
+      return AbstractValue.NULL;
     }
-    // FIXME(merciesa): should use annotation on package and class
     return AbstractValue.UNKNOWN;
   }
 
   public AbstractValue checkNullity(Tree tree) {
     if (tree.is(Tree.Kind.IDENTIFIER)) {
-      Symbol symbol = semanticModel.getReference((IdentifierTreeImpl) tree);
-      if (symbol != null && symbol.isVariableSymbol()) {
-        AbstractValue value = currentState.getVariableValue((VariableSymbol) symbol);
-        if (value != AbstractValue.UNKNOWN) {
-          return value;
-        }
-        return checkNullity(symbol);
-      }
+      return checkNullity((IdentifierTree) tree);
     } else if (tree.is(Tree.Kind.METHOD_INVOCATION)) {
       Symbol symbol = ((MethodInvocationTree) tree).symbol();
       if (symbol.isMethodSymbol()) {
@@ -295,38 +304,52 @@ public class NullPointerCheck extends BaseTreeVisitor implements JavaFileScanner
     } else if (tree.is(Tree.Kind.NULL_LITERAL)) {
       return AbstractValue.NULL;
     }
-    // FIXME(merciesa): should use annotation on package and class
     return AbstractValue.UNKNOWN;
   }
 
-  // raises an issue if the passed tree can be null.
-  private void checkForIssue(Tree tree) {
+  public AbstractValue checkNullity(IdentifierTree tree) {
+    Symbol symbol = tree.symbol();
+    if (isSymbolLocalVariableOrMethodParameter(symbol)) {
+      AbstractValue value = currentState.getVariableValue((VariableSymbol) symbol);
+      if (value != AbstractValue.UNSET) {
+        return value;
+      }
+      return checkNullity(symbol);
+    }
+    return AbstractValue.UNKNOWN;
+  }
+
+  /**
+   * raises an issue if the passed tree can be null.
+   *
+   * @param tree tree that must be checked
+   * @param nullableMessage message to generate when the tree is an identifier or a method invocation
+   * @param nullMessage message to generate when the tree is the null literal
+   */
+  private void checkForIssue(Tree tree, String nullableMessage, String nullMessage) {
     if (tree.is(Tree.Kind.IDENTIFIER)) {
-      Symbol symbol = semanticModel.getReference((IdentifierTreeImpl) tree);
-      if (symbol != null && symbol.isVariableSymbol() && currentState.getVariableValue((VariableSymbol) symbol) == AbstractValue.NULL) {
-        context.addIssue(tree, RULE_KEY, String.format("%s can be null.", symbol.name()));
+      Symbol symbol = ((IdentifierTree) tree).symbol();
+      if (checkNullity(tree) == AbstractValue.NULL) {
+        // prevents reporting issue multiple times
+        currentState.setVariableValue((VariableSymbol) symbol, AbstractValue.UNKNOWN);
+        context.addIssue(tree, this, String.format(nullableMessage, symbol.name()));
       }
     } else if (tree.is(Tree.Kind.METHOD_INVOCATION)) {
       Symbol symbol = ((MethodInvocationTree) tree).symbol();
-      if (symbol.isMethodSymbol() && checkNullity(symbol) == AbstractValue.NULL) {
-        context.addIssue(tree, RULE_KEY, String.format("Value returned by method '%s' can be null.", symbol.name()));
+      if (checkNullity(symbol) == AbstractValue.NULL) {
+        context.addIssue(tree, this, String.format(nullableMessage, symbol.name()));
       }
     } else if (tree.is(Tree.Kind.NULL_LITERAL)) {
-      context.addIssue(tree, RULE_KEY, "null is dereferenced or passed as argument.");
+      context.addIssue(tree, this, nullMessage);
     }
+  }
+
+  private boolean isSymbolLocalVariableOrMethodParameter(Symbol symbol) {
+    return symbol.isVariableSymbol() && symbol.owner().isMethodSymbol();
   }
 
   private void restorePreviousState() {
     currentState = currentState.parentState;
-  }
-
-  public enum AbstractValue {
-    // value is known to be not null.
-    NOTNULL,
-    // value is known to be null.
-    NULL,
-    // value is unknown (could be null or not null).
-    UNKNOWN
   }
 
   private ConditionalState visitCondition(ExpressionTree tree) {
@@ -369,13 +392,16 @@ public class NullPointerCheck extends BaseTreeVisitor implements JavaFileScanner
   // extracts the symbol in case of ident <op> null, or null <op> ident.
   @Nullable
   private VariableSymbol extractRelationalSymbol(BinaryExpressionTree tree) {
+    Symbol symbol = null;
     if (tree.leftOperand().is(Tree.Kind.NULL_LITERAL) && tree.rightOperand().is(Tree.Kind.IDENTIFIER)) {
-      return (VariableSymbol) semanticModel.getReference((IdentifierTreeImpl) tree.rightOperand());
+      symbol = ((IdentifierTree) tree.rightOperand()).symbol();
     } else if (tree.leftOperand().is(Tree.Kind.IDENTIFIER) && tree.rightOperand().is(Tree.Kind.NULL_LITERAL)) {
-      return (VariableSymbol) semanticModel.getReference((IdentifierTreeImpl) tree.leftOperand());
-    } else {
+      symbol = ((IdentifierTree) tree.leftOperand()).symbol();
+    }
+    if (symbol == null || !symbol.isVariableSymbol()) {
       return null;
     }
+    return (VariableSymbol) symbol;
   }
 
   private void visitRelationalEqualTo(BinaryExpressionTree tree) {
@@ -392,6 +418,49 @@ public class NullPointerCheck extends BaseTreeVisitor implements JavaFileScanner
       currentConditionalState.trueState.setVariableValue(symbol, AbstractValue.NOTNULL);
       currentConditionalState.falseState.setVariableValue(symbol, AbstractValue.NULL);
     }
+  }
+
+  @VisibleForTesting
+  static class AssignmentVisitor extends BaseTreeVisitor {
+    @VisibleForTesting
+    Set<VariableSymbol> assignedSymbols = new HashSet<>();
+
+    public Set<VariableSymbol> findAssignedVariables(Tree tree) {
+      tree.accept(this);
+      return assignedSymbols;
+    }
+
+    public Set<VariableSymbol> findAssignedVariables(List<? extends Tree> trees) {
+      for (Tree tree : trees) {
+        tree.accept(this);
+      }
+      return assignedSymbols;
+    }
+
+    @Override
+    public void visitAssignmentExpression(AssignmentExpressionTree tree) {
+      if (tree.variable().is(Tree.Kind.IDENTIFIER)) {
+        registerAssignedSymbol(((IdentifierTree) tree.variable()).symbol());
+      }
+      super.visitAssignmentExpression(tree);
+    }
+
+    @VisibleForTesting
+    void registerAssignedSymbol(Symbol symbol) {
+      if (symbol.isVariableSymbol()) {
+        assignedSymbols.add((VariableSymbol) symbol);
+      }
+    }
+  }
+
+  public enum AbstractValue {
+    UNSET,
+    // value is known to be not null.
+    NOTNULL,
+    // value is known to be null.
+    NULL,
+    // value is unknown (could be null or not null).
+    UNKNOWN
   }
 
   @VisibleForTesting
@@ -447,7 +516,7 @@ public class NullPointerCheck extends BaseTreeVisitor implements JavaFileScanner
           return result;
         }
       }
-      return AbstractValue.UNKNOWN;
+      return AbstractValue.UNSET;
     }
 
     // sets the value of the variable in the current state.
@@ -467,25 +536,19 @@ public class NullPointerCheck extends BaseTreeVisitor implements JavaFileScanner
     }
 
     /**
-     * sets all the variables registered in this state and all the previous states to UNKNOWN.
-     *
-     * @return this
-     */
-    public State invalidateValuesOfHierarchy() {
-      for (State state = this; state != null; state = state.parentState)
-        for (VariableSymbol variable : state.variables.keySet()) {
-          setVariableValue(variable, AbstractValue.UNKNOWN);
-        }
-      return this;
-    }
-
-    /**
      * sets all the variables registered in this state to UNKNOWN.
      *
      * @return this
      */
     public State invalidateValues() {
       for (VariableSymbol variable : variables.keySet()) {
+        setVariableValue(variable, AbstractValue.UNKNOWN);
+      }
+      return this;
+    }
+
+    public State invalidateVariables(Set<VariableSymbol> variables) {
+      for (VariableSymbol variable : variables) {
         setVariableValue(variable, AbstractValue.UNKNOWN);
       }
       return this;
@@ -503,12 +566,12 @@ public class NullPointerCheck extends BaseTreeVisitor implements JavaFileScanner
      * @return this
      */
     public State mergeValues(State state1, @Nullable State state2) {
-      Set<VariableSymbol> variables = new HashSet<>();
-      variables.addAll(state1.variables.keySet());
+      Set<VariableSymbol> mergeVariables = new HashSet<>();
+      mergeVariables.addAll(state1.variables.keySet());
       if (state2 != null) {
-        variables.addAll(state2.variables.keySet());
+        mergeVariables.addAll(state2.variables.keySet());
       }
-      for (VariableSymbol variable : variables) {
+      for (VariableSymbol variable : mergeVariables) {
         AbstractValue currentValue = getVariableValue(variable);
         AbstractValue trueValue = state1.variables.get(variable);
         if (trueValue == null) {

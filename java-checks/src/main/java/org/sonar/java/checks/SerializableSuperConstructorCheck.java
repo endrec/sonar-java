@@ -32,6 +32,8 @@ import org.sonar.squidbridge.annotations.ActivatedByDefault;
 import org.sonar.squidbridge.annotations.SqaleConstantRemediation;
 import org.sonar.squidbridge.annotations.SqaleSubCharacteristic;
 
+import javax.annotation.Nullable;
+
 import java.util.Collection;
 import java.util.List;
 
@@ -53,14 +55,16 @@ public class SerializableSuperConstructorCheck extends SubscriptionBaseVisitor {
   @Override
   public void visitNode(Tree tree) {
     if (hasSemantic()) {
-      Symbol.TypeSymbolSemantic classSymbol = ((ClassTree) tree).symbol();
-      if (isSerializable(classSymbol.type()) && !isSerializable(classSymbol.superClass())) {
-        Type superclass = classSymbol.superClass();
-        if (!hasNonPrivateNoArgConstructor(superclass)) {
-          addIssue(tree, "Add a no-arg constructor to \"" + superclass + "\".");
-        }
+      Symbol.TypeSymbol classSymbol = ((ClassTree) tree).symbol();
+      Type superclass = classSymbol.superClass();
+      if (isSerializable(classSymbol.type()) && isNotSerializableMissingNoArgConstructor(superclass)) {
+        addIssue(tree, "Add a no-arg constructor to \"" + superclass + "\".");
       }
     }
+  }
+
+  private boolean isNotSerializableMissingNoArgConstructor(@Nullable Type superclass) {
+    return superclass != null && !isSerializable(superclass) && !hasNonPrivateNoArgConstructor(superclass);
   }
 
   private boolean isSerializable(Type type) {
@@ -71,7 +75,7 @@ public class SerializableSuperConstructorCheck extends SubscriptionBaseVisitor {
     Collection<Symbol> constructors = type.symbol().lookupSymbols("<init>");
     for (Symbol member : constructors) {
       if (member.isMethodSymbol()) {
-        Symbol.MethodSymbolSemantic method = (Symbol.MethodSymbolSemantic) member;
+        Symbol.MethodSymbol method = (Symbol.MethodSymbol) member;
         if (method.parameterTypes().isEmpty() && !method.isPrivate()) {
           return true;
         }

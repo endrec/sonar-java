@@ -19,7 +19,6 @@
  */
 package org.sonar.java.checks;
 
-import org.sonar.api.rule.RuleKey;
 import org.sonar.api.server.rule.RulesDefinition;
 import org.sonar.check.Priority;
 import org.sonar.check.Rule;
@@ -40,7 +39,7 @@ import java.util.Deque;
 import java.util.List;
 
 @Rule(
-  key = ClassVariableVisibilityCheck.RULE_KEY,
+  key = "ClassVariableVisibilityCheck",
   name = "Class variable fields should not have public accessibility",
   tags = {"cwe"},
   priority = Priority.MAJOR)
@@ -48,9 +47,6 @@ import java.util.List;
 @SqaleSubCharacteristic(RulesDefinition.SubCharacteristics.ARCHITECTURE_CHANGEABILITY)
 @SqaleConstantRemediation("10min")
 public class ClassVariableVisibilityCheck extends BaseTreeVisitor implements JavaFileScanner {
-
-  public static final String RULE_KEY = "ClassVariableVisibilityCheck";
-  private final RuleKey ruleKey = RuleKey.of(CheckList.REPOSITORY_KEY, RULE_KEY);
 
   private Deque<Boolean> isClassStack = new ArrayDeque<Boolean>();
 
@@ -64,7 +60,6 @@ public class ClassVariableVisibilityCheck extends BaseTreeVisitor implements Jav
 
   @Override
   public void visitClass(ClassTree tree) {
-
     isClassStack.push(tree.is(Tree.Kind.CLASS) || tree.is(Tree.Kind.ENUM));
     super.visitClass(tree);
     isClassStack.pop();
@@ -72,14 +67,12 @@ public class ClassVariableVisibilityCheck extends BaseTreeVisitor implements Jav
 
   @Override
   public void visitVariable(VariableTree tree) {
-
     List<Modifier> modifiers = tree.modifiers().modifiers();
     List<AnnotationTree> annotations = tree.modifiers().annotations();
 
-    if (isClass() && isPublic(modifiers) && !(isConstant(modifiers) || !annotations.isEmpty())) {
-      context.addIssue(tree, ruleKey, "Make " + tree.simpleName() + " a static final constant or non-public and provide accessors if needed.");
+    if (isClass() && isPublic(modifiers) && !(isFinal(modifiers) || !annotations.isEmpty())) {
+      context.addIssue(tree, this, "Make " + tree.simpleName() + " a static final constant or non-public and provide accessors if needed.");
     }
-
     super.visitVariable(tree);
   }
 
@@ -87,11 +80,12 @@ public class ClassVariableVisibilityCheck extends BaseTreeVisitor implements Jav
     return !isClassStack.isEmpty() && isClassStack.peek();
   }
 
-  private static boolean isConstant(List<Modifier> modifiers) {
-    return !modifiers.isEmpty() && modifiers.contains(Modifier.FINAL) && modifiers.contains(Modifier.STATIC);
+  private static boolean isFinal(List<Modifier> modifiers) {
+    return modifiers.contains(Modifier.FINAL);
   }
 
   private static boolean isPublic(List<Modifier> modifiers) {
-    return !modifiers.isEmpty() && modifiers.contains(Modifier.PUBLIC);
+    return modifiers.contains(Modifier.PUBLIC);
   }
+
 }

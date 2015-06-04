@@ -5,7 +5,7 @@
   <parent>
     <groupId>org.codehaus.sonar-plugins.java</groupId>
     <artifactId>java</artifactId>
-    <version>3.1-SNAPSHOT</version>
+    <version>3.3</version>
   </parent>
 
   <artifactId>sonar-java-plugin</artifactId>
@@ -18,7 +18,7 @@
     <connection>scm:git:git@github.com:SonarSource/sonar-java.git</connection>
     <developerConnection>scm:git:git@github.com:SonarSource/sonar-java.git</developerConnection>
     <url>https://github.com/SonarSource/sonar-java</url>
-    <tag>HEAD</tag>
+    <tag>3.3</tag>
   </scm>
   <properties>
     <!-- Configuration for sonar-packaging-maven-plugin -->
@@ -57,11 +57,6 @@
       <groupId>org.codehaus.sonar</groupId>
       <artifactId>sonar-plugin-api</artifactId>
       <scope>provided</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.codehaus.sonar.common-rules</groupId>
-      <artifactId>sonar-common-rules</artifactId>
-      <version>1.2</version>
     </dependency>
     <dependency>
       <groupId>com.google.collections</groupId>
@@ -109,7 +104,7 @@
             <configuration>
               <rules>
                 <requireFilesSize>
-                  <maxsize>2500000</maxsize>
+                  <maxsize>2700000</maxsize>
                   <minsize>2000000</minsize>
                   <files>
                     <file>${project.build.directory}/${project.build.finalName}.jar</file>

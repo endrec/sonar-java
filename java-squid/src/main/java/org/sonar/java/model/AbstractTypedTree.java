@@ -27,6 +27,9 @@ import org.sonar.plugins.java.api.semantic.Type;
 
 import javax.annotation.Nullable;
 
+/**
+ * This class is intended for internal use during semantic analysis and should not be used in checks.
+ */
 public abstract class AbstractTypedTree extends JavaTree {
 
   /**
@@ -48,11 +51,10 @@ public abstract class AbstractTypedTree extends JavaTree {
   }
 
   /**
-   * @deprecated should use symbolType() method
+   * This method is intended for internal use only during semantic analysis.
    */
-  @Deprecated
-  public org.sonar.java.resolve.Type getSymbolType() {
-    return (org.sonar.java.resolve.Type) type;
+  public boolean isTypeSet() {
+    return type != null;
   }
 
   public Type symbolType() {

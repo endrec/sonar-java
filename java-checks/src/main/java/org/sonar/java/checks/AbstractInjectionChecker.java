@@ -64,8 +64,8 @@ public abstract class AbstractInjectionChecker extends SubscriptionBaseVisitor {
   }
 
   protected boolean isIdentifierDynamicString(Tree methodTree, IdentifierTree arg, @Nullable Symbol currentlyChecking, boolean firstLevel) {
-    Symbol symbol = getSemanticModel().getReference(arg);
-    if (symbol.equals(currentlyChecking) || isConstant(symbol)) {
+    Symbol symbol = arg.symbol();
+    if (isExcluded(currentlyChecking, symbol)) {
       return false;
     }
 
@@ -75,12 +75,13 @@ public abstract class AbstractInjectionChecker extends SubscriptionBaseVisitor {
       //symbol is a local variable, check it is not a dynamic string.
 
       //Check declaration
-      VariableTree declaration = (VariableTree) getSemanticModel().getTree(symbol);
-      if (declaration.initializer() != null && isDynamicString(methodTree, declaration.initializer(), currentlyChecking)) {
+      VariableTree declaration = ((Symbol.VariableSymbol) symbol).declaration();
+      ExpressionTree initializer = declaration.initializer();
+      if (initializer != null && isDynamicString(methodTree, initializer, currentlyChecking)) {
         return true;
       }
       //check usages by revisiting the enclosing tree.
-      Collection<IdentifierTree> usages = getSemanticModel().getUsages(symbol);
+      Collection<IdentifierTree> usages = symbol.usages();
       LocalVariableDynamicStringVisitor visitor = new LocalVariableDynamicStringVisitor(symbol, usages, methodTree);
       argEnclosingDeclarationTree.accept(visitor);
       return visitor.dynamicString;
@@ -88,6 +89,10 @@ public abstract class AbstractInjectionChecker extends SubscriptionBaseVisitor {
     //arg is not a local variable nor a constant, so it is a parameter or a field.
     parameterName = arg.name();
     return symbol.owner().isMethodSymbol() && !firstLevel;
+  }
+
+  private boolean isExcluded(@Nullable Symbol currentlyChecking, Symbol symbol) {
+    return !symbol.isVariableSymbol() || symbol.equals(currentlyChecking) || isConstant(symbol);
   }
 
   public boolean isConstant(Symbol symbol) {

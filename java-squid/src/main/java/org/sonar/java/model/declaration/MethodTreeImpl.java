@@ -26,7 +26,8 @@ import com.sonar.sslr.api.AstNode;
 import org.sonar.java.ast.parser.FormalParametersListTreeImpl;
 import org.sonar.java.ast.parser.TypeParameterListTreeImpl;
 import org.sonar.java.model.JavaTree;
-import org.sonar.java.resolve.Symbol;
+import org.sonar.java.resolve.JavaSymbol;
+import org.sonar.plugins.java.api.semantic.Symbol;
 import org.sonar.plugins.java.api.tree.AnnotationTree;
 import org.sonar.plugins.java.api.tree.ArrayTypeTree;
 import org.sonar.plugins.java.api.tree.BlockTree;
@@ -43,6 +44,7 @@ import org.sonar.plugins.java.api.tree.TypeParameters;
 import org.sonar.plugins.java.api.tree.TypeTree;
 import org.sonar.plugins.java.api.tree.VariableTree;
 
+import javax.annotation.CheckForNull;
 import javax.annotation.Nullable;
 import java.util.Iterator;
 import java.util.List;
@@ -61,7 +63,9 @@ public class MethodTreeImpl extends JavaTree implements MethodTree {
   private final SyntaxToken defaultToken;
   private final ExpressionTree defaultValue;
 
-  private Symbol.MethodSymbol symbol;
+  //FIXME nullable if semantic analysis is not set. Should have a default value.
+  @Nullable
+  private JavaSymbol.MethodJavaSymbol symbol;
 
   public MethodTreeImpl(FormalParametersListTreeImpl parameters, @Nullable SyntaxToken defaultToken, @Nullable ExpressionTree defaultValue) {
     super(Kind.METHOD);
@@ -180,7 +184,7 @@ public class MethodTreeImpl extends JavaTree implements MethodTree {
   }
 
   @Override
-  public org.sonar.plugins.java.api.semantic.Symbol.MethodSymbolSemantic symbol() {
+  public Symbol.MethodSymbol symbol() {
     return symbol;
   }
 
@@ -189,7 +193,7 @@ public class MethodTreeImpl extends JavaTree implements MethodTree {
     visitor.visitMethod(this);
   }
 
-  public void setSymbol(Symbol.MethodSymbol symbol) {
+  public void setSymbol(JavaSymbol.MethodJavaSymbol symbol) {
     Preconditions.checkState(this.symbol == null);
     this.symbol = symbol;
   }
@@ -220,6 +224,7 @@ public class MethodTreeImpl extends JavaTree implements MethodTree {
    *
    * @return true if overriden, null if it cannot be decided (method symbol not resolved or lack of bytecode for super types).
    */
+  @CheckForNull
   public Boolean isOverriding() {
     if (isStatic() || isPrivate()) {
       return false;

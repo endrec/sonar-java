@@ -72,15 +72,15 @@ public class IteratorNextExceptionCheck extends SubscriptionBaseVisitor {
     }
   }
 
-  private boolean isIteratorNextMethod(Symbol.MethodSymbolSemantic symbol) {
+  private boolean isIteratorNextMethod(Symbol.MethodSymbol symbol) {
     return "next".equals(symbol.name()) && symbol.parameterTypes().isEmpty() && isIterator(symbol.enclosingClass());
   }
 
-  private boolean isIterator(Symbol.TypeSymbolSemantic typeSymbol) {
+  private boolean isIterator(Symbol.TypeSymbol typeSymbol) {
     return typeSymbol.type().isSubtypeOf("java.util.Iterator");
   }
 
-  private class NextMethodBodyVisitor extends BaseTreeVisitor {
+  private static class NextMethodBodyVisitor extends BaseTreeVisitor {
 
     private boolean foundThrow = false;
 
@@ -98,7 +98,7 @@ public class IteratorNextExceptionCheck extends SubscriptionBaseVisitor {
 
     @Override
     public void visitMethodInvocation(MethodInvocationTree methodInvocation) {
-      if (NEXT_INVOCATION_MATCHER.matches(methodInvocation, getSemanticModel()) || throwsNoSuchElementException(methodInvocation)) {
+      if (NEXT_INVOCATION_MATCHER.matches(methodInvocation) || throwsNoSuchElementException(methodInvocation)) {
         foundThrow = true;
       }
       super.visitMethodInvocation(methodInvocation);
@@ -109,7 +109,7 @@ public class IteratorNextExceptionCheck extends SubscriptionBaseVisitor {
       if (!symbol.isMethodSymbol()) {
         return false;
       }
-      Symbol.MethodSymbolSemantic methodSymbol = (Symbol.MethodSymbolSemantic) symbol;
+      Symbol.MethodSymbol methodSymbol = (Symbol.MethodSymbol) symbol;
       for (Type thrownType : methodSymbol.thrownTypes()) {
         if (thrownType.is("java.util.NoSuchElementException")) {
           return true;

@@ -54,7 +54,7 @@ public class FieldMatchMethodNameCheck extends SubscriptionBaseVisitor {
 
   @Override
   public void visitNode(Tree tree) {
-    Symbol.TypeSymbolSemantic classSymbol = ((ClassTree) tree).symbol();
+    Symbol.TypeSymbol classSymbol = ((ClassTree) tree).symbol();
     if (classSymbol != null) {
       Map<String, Symbol> indexSymbol = Maps.newHashMap();
       Multiset<String> fields = HashMultiset.create();
@@ -75,7 +75,7 @@ public class FieldMatchMethodNameCheck extends SubscriptionBaseVisitor {
       fields.addAll(methodNames);
       for (Multiset.Entry<String> entry : fields.entrySet()) {
         if (entry.getCount() > 1) {
-          Tree field = getSemanticModel().getTree(indexSymbol.get(entry.getElement()));
+          Tree field = indexSymbol.get(entry.getElement()).declaration();
           if (field != null) {
             addIssue(field, "Rename the \"" + fieldsOriginal.get(entry.getElement()) + "\" member.");
           }

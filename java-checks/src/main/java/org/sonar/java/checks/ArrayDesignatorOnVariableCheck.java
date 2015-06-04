@@ -26,6 +26,7 @@ import org.sonar.check.Rule;
 import org.sonar.java.ast.parser.JavaLexer;
 import org.sonar.java.ast.parser.TreeFactory;
 import org.sonar.java.model.declaration.VariableTreeImpl;
+import org.sonar.plugins.java.api.JavaCheck;
 import org.sonar.plugins.java.api.tree.Tree.Kind;
 import org.sonar.squidbridge.annotations.ActivatedByDefault;
 import org.sonar.squidbridge.annotations.SqaleConstantRemediation;
@@ -41,7 +42,7 @@ import org.sonar.sslr.parser.LexerlessGrammar;
 @ActivatedByDefault
 @SqaleSubCharacteristic(RulesDefinition.SubCharacteristics.READABILITY)
 @SqaleConstantRemediation("5min")
-public class ArrayDesignatorOnVariableCheck extends SquidCheck<LexerlessGrammar> {
+public class ArrayDesignatorOnVariableCheck extends SquidCheck<LexerlessGrammar> implements JavaCheck {
 
   @Override
   public void init() {
@@ -51,7 +52,7 @@ public class ArrayDesignatorOnVariableCheck extends SquidCheck<LexerlessGrammar>
 
   @Override
   public void visitNode(AstNode node) {
-    if (node.hasDirectChildren(TreeFactory.WRAPPER_AST_NODE) || node.is(Kind.VARIABLE) && ((VariableTreeImpl) node).dims() > 0) {
+    if (node.hasDirectChildren(TreeFactory.WRAPPER_AST_NODE) || (node.is(Kind.VARIABLE) && ((VariableTreeImpl) node).dims() > 0)) {
       getContext().createLineViolation(this, "Move the array designator from the variable to the type.", node);
     }
   }

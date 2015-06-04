@@ -23,10 +23,12 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.sonar.java.JavaAstScanner;
 import org.sonar.java.checks.NullPointerCheck.AbstractValue;
+import org.sonar.java.checks.NullPointerCheck.AssignmentVisitor;
 import org.sonar.java.checks.NullPointerCheck.ConditionalState;
 import org.sonar.java.checks.NullPointerCheck.State;
 import org.sonar.java.model.VisitorsBridge;
-import org.sonar.java.resolve.Symbol.VariableSymbol;
+import org.sonar.java.resolve.JavaSymbol.VariableJavaSymbol;
+import org.sonar.plugins.java.api.semantic.Symbol;
 import org.sonar.squidbridge.api.SourceFile;
 import org.sonar.squidbridge.checks.CheckMessagesVerifierRule;
 
@@ -34,9 +36,11 @@ import java.io.File;
 
 import static org.fest.assertions.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 import static org.sonar.java.checks.NullPointerCheck.AbstractValue.NOTNULL;
 import static org.sonar.java.checks.NullPointerCheck.AbstractValue.NULL;
 import static org.sonar.java.checks.NullPointerCheck.AbstractValue.UNKNOWN;
+import static org.sonar.java.checks.NullPointerCheck.AbstractValue.UNSET;
 
 public class NullPointerCheckTest {
 
@@ -48,47 +52,53 @@ public class NullPointerCheckTest {
     SourceFile file = JavaAstScanner.scanSingleFile(new File("src/test/files/checks/NullPointerCheck.java"),
       new VisitorsBridge(new NullPointerCheck()));
     checkMessagesVerifier.verify(file.getCheckMessages())
-      .next().atLine(14).withMessage("null is dereferenced or passed as argument.")
-      .next().atLine(15).withMessage("null is dereferenced or passed as argument.")
-      .next().atLine(16).withMessage("null is dereferenced or passed as argument.")
-      .next().atLine(71).withMessage("array1 can be null.")
-      .next().atLine(76).withMessage("array2 can be null.")
-      .next().atLine(78).withMessage("Value returned by method 'checkForNullMethod' can be null.")
-      .next().atLine(86).withMessage("array1 can be null.")
-      .next().atLine(91).withMessage("array2 can be null.")
-      .next().atLine(93).withMessage("Value returned by method 'nullableMethod' can be null.")
-      .next().atLine(144).withMessage("Value returned by method 'checkForNullMethod' can be null.")
-      .next().atLine(145).withMessage("Value returned by method 'checkForNullMethod' can be null.")
-      .next().atLine(146).withMessage("Value returned by method 'checkForNullMethod' can be null.")
-      .next().atLine(151).withMessage("null is dereferenced or passed as argument.")
-      .next().atLine(152).withMessage("null is dereferenced or passed as argument.")
-      .next().atLine(153).withMessage("null is dereferenced or passed as argument.")
-      .next().atLine(159).withMessage("argument1 can be null.")
-      .next().atLine(165).withMessage("argument1 can be null.")
-      .next().atLine(172).withMessage("argument2 can be null.")
-      .next().atLine(174).withMessage("argument2 can be null.")
-      .next().atLine(209).withMessage("argument4 can be null.")
-      .next().atLine(215).withMessage("argument2 can be null.")
-      .next().atLine(217).withMessage("argument3 can be null.")
-      .next().atLine(225).withMessage("var1 can be null.")
-      .next().atLine(227).withMessage("var2 can be null.")
-      .next().atLine(235).withMessage("object can be null.")
-      .next().atLine(237).withMessage("object can be null.")
-      .next().atLine(245).withMessage("object can be null.")
-      .next().atLine(246).withMessage("object can be null.")
-      .next().atLine(246).withMessage("object can be null.")
-      .next().atLine(248).withMessage("str can be null.")
-      .next().atLine(255).withMessage("object can be null.")
-      .next().atLine(256).withMessage("object can be null.")
-      .next().atLine(256).withMessage("object can be null.")
-      .next().atLine(258).withMessage("str can be null.")
-      .next().atLine(270).withMessage("object1 can be null.")
-      .next().atLine(278).withMessage("object can be null.")
-      .next().atLine(278).withMessage("object can be null.")
-      .next().atLine(292).withMessage("set can be null.")
-      .next().atLine(295).withMessage("value can be null.")
-      .next().atLine(303).withMessage("object1 can be null.")
-      .next().atLine(306).withMessage("object2 can be null.");
+      .next().atLine(14).withMessage("null is dereferenced")
+      .next().atLine(15).withMessage("null is dereferenced")
+      .next().atLine(16).withMessage("null is dereferenced")
+      .next().atLine(76).withMessage("NullPointerException might be thrown as 'array2' is nullable here")
+      .next().atLine(78).withMessage("NullPointerException might be thrown as 'checkForNullMethod' is nullable here")
+      .next().atLine(107).withMessage("NullPointerException might be thrown as 'a2' is nullable here")
+      .next().atLine(144).withMessage("'checkForNullMethod' is nullable here and method 'method2' does not accept nullable argument")
+      .next().atLine(145).withMessage("'checkForNullMethod' is nullable here and method 'method2' does not accept nullable argument")
+      .next().atLine(146).withMessage("'checkForNullMethod' is nullable here and method 'method2' does not accept nullable argument")
+      .next().atLine(151).withMessage("method 'method2' does not accept nullable argument")
+      .next().atLine(152).withMessage("method 'method2' does not accept nullable argument")
+      .next().atLine(153).withMessage("method 'method2' does not accept nullable argument")
+      .next().atLine(159).withMessage("NullPointerException might be thrown as 'argument1' is nullable here")
+      .next().atLine(165).withMessage("NullPointerException might be thrown as 'argument1' is nullable here")
+      .next().atLine(172).withMessage("NullPointerException might be thrown as 'argument2' is nullable here")
+      .next().atLine(174).withMessage("NullPointerException might be thrown as 'argument2' is nullable here")
+      .next().atLine(209).withMessage("NullPointerException might be thrown as 'argument4' is nullable here")
+      .next().atLine(215).withMessage("NullPointerException might be thrown as 'argument2' is nullable here")
+      .next().atLine(217).withMessage("NullPointerException might be thrown as 'argument3' is nullable here")
+      .next().atLine(225).withMessage("NullPointerException might be thrown as 'var1' is nullable here")
+      .next().atLine(235).withMessage("NullPointerException might be thrown as 'object' is nullable here")
+      .next().atLine(237).withMessage("NullPointerException might be thrown as 'object' is nullable here")
+      .next().atLine(245).withMessage("NullPointerException might be thrown as 'object' is nullable here")
+      .next().atLine(246).withMessage("NullPointerException might be thrown as 'object' is nullable here")
+      .next().atLine(248).withMessage("NullPointerException might be thrown as 'str' is nullable here")
+      .next().atLine(255).withMessage("NullPointerException might be thrown as 'object' is nullable here")
+      .next().atLine(256).withMessage("NullPointerException might be thrown as 'object' is nullable here")
+      .next().atLine(258).withMessage("NullPointerException might be thrown as 'str' is nullable here")
+      .next().atLine(270).withMessage("NullPointerException might be thrown as 'object1' is nullable here")
+      .next().atLine(278).withMessage("NullPointerException might be thrown as 'object' is nullable here")
+      .next().atLine(278).withMessage("NullPointerException might be thrown as 'object' is nullable here")
+      .next().atLine(283).withMessage("NullPointerException might be thrown as 'object2' is nullable here")
+      .next().atLine(284).withMessage("NullPointerException might be thrown as 'object1' is nullable here")
+      .next().atLine(292).withMessage("NullPointerException might be thrown as 'set' is nullable here")
+      .next().atLine(293).withMessage("NullPointerException might be thrown as 'head' is nullable here")
+      .next().atLine(295).withMessage("NullPointerException might be thrown as 'value' is nullable here")
+      .next().atLine(297).withMessage("NullPointerException might be thrown as 'head' is nullable here")
+      .next().atLine(303).withMessage("NullPointerException might be thrown as 'object1' is nullable here")
+      .next().atLine(306).withMessage("NullPointerException might be thrown as 'object2' is nullable here")
+      .next().atLine(310).withMessage("NullPointerException might be thrown as 'object3' is nullable here")
+      .next().atLine(333).withMessage("NullPointerException might be thrown as 'str1' is nullable here")
+      .next().atLine(335).withMessage("NullPointerException might be thrown as 'str2' is nullable here")
+      .next().atLine(337).withMessage("NullPointerException might be thrown as 'str3' is nullable here")
+      .next().atLine(354).withMessage("NullPointerException might be thrown as 'object' is nullable here")
+      .next().atLine(361).withMessage("NullPointerException might be thrown as 'object12' is nullable here")
+      .next().atLine(376).withMessage("NullPointerException might be thrown as 'object22' is nullable here")
+      .next().atLine(414).withMessage("NullPointerException might be thrown as 'object3' is nullable here");
   }
 
   @Test
@@ -101,13 +111,13 @@ public class NullPointerCheckTest {
 
   @Test
   public void test_state_get_variable_value() {
-    VariableSymbol variable = mock(VariableSymbol.class);
+    VariableJavaSymbol variable = mock(VariableJavaSymbol.class);
 
     State parentState = new State();
     State currentState = new State(parentState);
 
-    // undefined variable must be unknown
-    assertThat(parentState.getVariableValue(variable)).isSameAs(UNKNOWN);
+    // undefined variable must be unset
+    assertThat(parentState.getVariableValue(variable)).isSameAs(UNSET);
 
     // variable defined in parent must be visible in current.
     parentState.setVariableValue(variable, NOTNULL);
@@ -121,7 +131,7 @@ public class NullPointerCheckTest {
   }
 
   private AbstractValue testMerge(AbstractValue parentValue, AbstractValue trueValue, AbstractValue falseValue) {
-    VariableSymbol variable = mock(VariableSymbol.class);
+    VariableJavaSymbol variable = mock(VariableJavaSymbol.class);
     State parentState = new State();
     if (parentValue != null) {
       parentState.setVariableValue(variable, parentValue);
@@ -169,8 +179,8 @@ public class NullPointerCheckTest {
   public void test_state_invalidate_values() {
     State parentState = new State();
     State currentState = new State(parentState);
-    VariableSymbol parentVariable = mock(VariableSymbol.class);
-    VariableSymbol childVariable = mock(VariableSymbol.class);
+    VariableJavaSymbol parentVariable = mock(VariableJavaSymbol.class);
+    VariableJavaSymbol childVariable = mock(VariableJavaSymbol.class);
     parentState.setVariableValue(parentVariable, NULL);
     currentState.setVariableValue(childVariable, NULL);
 
@@ -182,9 +192,9 @@ public class NullPointerCheckTest {
 
   @Test
   public void test_state_copy_values_from() {
-    VariableSymbol parentVariable = mock(VariableSymbol.class);
-    VariableSymbol childVariable = mock(VariableSymbol.class);
-    VariableSymbol bothVariable = mock(VariableSymbol.class);
+    VariableJavaSymbol parentVariable = mock(VariableJavaSymbol.class);
+    VariableJavaSymbol childVariable = mock(VariableJavaSymbol.class);
+    VariableJavaSymbol bothVariable = mock(VariableJavaSymbol.class);
     State parentState = new State();
     parentState.setVariableValue(parentVariable, NULL);
     parentState.setVariableValue(bothVariable, NULL);
@@ -201,9 +211,9 @@ public class NullPointerCheckTest {
 
   @Test
   public void test_state_merge_conditional_and() {
-    VariableSymbol variable1 = mock(VariableSymbol.class);
-    VariableSymbol variable2 = mock(VariableSymbol.class);
-    VariableSymbol variable3 = mock(VariableSymbol.class);
+    VariableJavaSymbol variable1 = mock(VariableJavaSymbol.class);
+    VariableJavaSymbol variable2 = mock(VariableJavaSymbol.class);
+    VariableJavaSymbol variable3 = mock(VariableJavaSymbol.class);
 
     // initial state with variables set to null.
     State currentState = new State();
@@ -237,9 +247,9 @@ public class NullPointerCheckTest {
 
   @Test
   public void test_state_merge_conditional_or() {
-    VariableSymbol variable1 = mock(VariableSymbol.class);
-    VariableSymbol variable2 = mock(VariableSymbol.class);
-    VariableSymbol variable3 = mock(VariableSymbol.class);
+    VariableJavaSymbol variable1 = mock(VariableJavaSymbol.class);
+    VariableJavaSymbol variable2 = mock(VariableJavaSymbol.class);
+    VariableJavaSymbol variable3 = mock(VariableJavaSymbol.class);
 
     // initial state with variables set to not null.
     State currentState = new State();
@@ -269,6 +279,21 @@ public class NullPointerCheckTest {
     // variables not checked in conditions must remain unchanged.
     assertThat(conditionalState.trueState.getVariableValue(variable3)).isSameAs(NOTNULL);
     assertThat(conditionalState.falseState.getVariableValue(variable3)).isSameAs(NOTNULL);
+  }
+
+  @Test
+  public void test_assignment_visitor() {
+    AssignmentVisitor visitor = new NullPointerCheck.AssignmentVisitor();
+
+    Symbol methodSymbol = mock(Symbol.class);
+    when(methodSymbol.isVariableSymbol()).thenReturn(false);
+    visitor.registerAssignedSymbol(methodSymbol);
+    assertThat(visitor.assignedSymbols).isEmpty();
+
+    VariableJavaSymbol variableSymbol = mock(VariableJavaSymbol.class);
+    when(variableSymbol.isVariableSymbol()).thenReturn(true);
+    visitor.registerAssignedSymbol(variableSymbol);
+    assertThat(visitor.assignedSymbols.size()).isEqualTo(1);
   }
 
 }

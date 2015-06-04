@@ -19,7 +19,6 @@
  */
 package org.sonar.java.checks;
 
-import org.sonar.api.rule.RuleKey;
 import org.sonar.api.server.rule.RulesDefinition;
 import org.sonar.check.Priority;
 import org.sonar.check.Rule;
@@ -29,22 +28,20 @@ import org.sonar.plugins.java.api.semantic.Symbol;
 import org.sonar.plugins.java.api.tree.BaseTreeVisitor;
 import org.sonar.plugins.java.api.tree.ClassTree;
 import org.sonar.plugins.java.api.tree.Tree;
+import org.sonar.plugins.java.api.tree.TypeTree;
 import org.sonar.squidbridge.annotations.SqaleConstantRemediation;
 import org.sonar.squidbridge.annotations.SqaleSubCharacteristic;
 
 import java.util.Collection;
 
 @Rule(
-  key = AbstractClassWithoutAbstractMethodCheck.RULE_KEY,
+  key = "S1694",
   name = "An abstract class should have both abstract and concrete methods",
   tags = {"convention"},
   priority = Priority.MINOR)
 @SqaleSubCharacteristic(RulesDefinition.SubCharacteristics.UNDERSTANDABILITY)
 @SqaleConstantRemediation("5min")
 public class AbstractClassWithoutAbstractMethodCheck extends BaseTreeVisitor implements JavaFileScanner {
-
-  public static final String RULE_KEY = "S1694";
-  private final RuleKey ruleKey = RuleKey.of(CheckList.REPOSITORY_KEY, RULE_KEY);
 
   private JavaFileScannerContext context;
 
@@ -57,22 +54,26 @@ public class AbstractClassWithoutAbstractMethodCheck extends BaseTreeVisitor imp
   @Override
   public void visitClass(ClassTree tree) {
     if (tree.is(Tree.Kind.CLASS)) {
-      Symbol.TypeSymbolSemantic typeSymbol = tree.symbol();
+      Symbol.TypeSymbol typeSymbol = tree.symbol();
       if (typeSymbol != null && typeSymbol.isAbstract()) {
         Collection<Symbol> symbols = typeSymbol.memberSymbols();
         int abstractMethod = countAbstractMethods(symbols);
-        //only count "this" in symbols and not "super" because abstract classes extending cannot be converted to interface
-        if (symbols.size() == 1 || abstractMethod == symbols.size() - 1) {
+        if (isExtendingObject(tree) && abstractMethod == symbols.size() - 2) {
           //emtpy abstract class or only abstract method
-          context.addIssue(tree, ruleKey, "Convert this \"" + typeSymbol + "\" class to an interface");
+          context.addIssue(tree, this, "Convert this \"" + typeSymbol + "\" class to an interface");
         }
-        if (symbols.size() > 1 && abstractMethod == 0 && !isPartialImplementation(tree)) {
+        if (symbols.size() > 2 && abstractMethod == 0 && !isPartialImplementation(tree)) {
           //Not empty abstract class with no abstract method
-          context.addIssue(tree, ruleKey, "Convert this \"" + typeSymbol + "\" class to a concrete class with a private constructor");
+          context.addIssue(tree, this, "Convert this \"" + typeSymbol + "\" class to a concrete class with a private constructor");
         }
       }
     }
     super.visitClass(tree);
+  }
+
+  private boolean isExtendingObject(ClassTree tree) {
+    TypeTree superClass = tree.superClass();
+    return superClass == null || superClass.symbolType().is("java.lang.Object");
   }
 
   private boolean isPartialImplementation(ClassTree tree) {

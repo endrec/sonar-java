@@ -30,7 +30,9 @@ import org.sonar.java.ast.parser.TypeParameterListTreeImpl;
 import org.sonar.java.model.InternalSyntaxToken;
 import org.sonar.java.model.JavaTree;
 import org.sonar.java.model.expression.IdentifierTreeImpl;
-import org.sonar.java.resolve.Symbol;
+import org.sonar.java.resolve.JavaSymbol;
+import org.sonar.java.resolve.Symbols;
+import org.sonar.plugins.java.api.semantic.Symbol;
 import org.sonar.plugins.java.api.tree.ClassTree;
 import org.sonar.plugins.java.api.tree.IdentifierTree;
 import org.sonar.plugins.java.api.tree.ModifiersTree;
@@ -55,9 +57,7 @@ public class ClassTreeImpl extends JavaTree implements ClassTree {
   @Nullable
   private TypeTree superClass;
   private List<TypeTree> superInterfaces;
-  // FIXME(Godin): never should be null, i.e. should have default value
-  @Nullable
-  private Symbol.TypeSymbol symbol;
+  private JavaSymbol.TypeJavaSymbol symbol = Symbols.unknownSymbol;
 
   public ClassTreeImpl(Kind kind, List<Tree> members, List<AstNode> children) {
     super(kind);
@@ -85,19 +85,6 @@ public class ClassTreeImpl extends JavaTree implements ClassTree {
     for (AstNode child : children) {
       addChild(child);
     }
-  }
-
-  public ClassTreeImpl(
-    AstNode astNode, Kind kind, ModifiersTree modifiers,
-    @Nullable IdentifierTree simpleName, TypeParameters typeParameters, @Nullable TypeTree superClass, List<TypeTree> superInterfaces, List<Tree> members) {
-    super(astNode);
-    this.kind = Preconditions.checkNotNull(kind);
-    this.modifiers = Preconditions.checkNotNull(modifiers);
-    this.simpleName = simpleName;
-    this.typeParameters = typeParameters;
-    this.superClass = superClass;
-    this.superInterfaces = Preconditions.checkNotNull(superInterfaces);
-    this.members = Preconditions.checkNotNull(members);
   }
 
   public ClassTreeImpl completeModifiers(ModifiersTreeImpl modifiers) {
@@ -193,7 +180,7 @@ public class ClassTreeImpl extends JavaTree implements ClassTree {
   }
 
   @Override
-  public org.sonar.plugins.java.api.semantic.Symbol.TypeSymbolSemantic symbol() {
+  public Symbol.TypeSymbol symbol() {
     return symbol;
   }
 
@@ -202,8 +189,8 @@ public class ClassTreeImpl extends JavaTree implements ClassTree {
     visitor.visitClass(this);
   }
 
-  public void setSymbol(Symbol.TypeSymbol symbol) {
-    Preconditions.checkState(this.symbol == null);
+  public void setSymbol(JavaSymbol.TypeJavaSymbol symbol) {
+    Preconditions.checkState(this.symbol.equals(Symbols.unknownSymbol));
     this.symbol = symbol;
   }
 

@@ -87,6 +87,7 @@ import org.sonar.java.parser.sslr.Optional;
 import org.sonar.plugins.java.api.tree.AnnotationTree;
 import org.sonar.plugins.java.api.tree.ExpressionTree;
 import org.sonar.plugins.java.api.tree.IdentifierTree;
+import org.sonar.plugins.java.api.tree.ImportClauseTree;
 import org.sonar.plugins.java.api.tree.ModifierTree;
 import org.sonar.plugins.java.api.tree.StatementTree;
 import org.sonar.plugins.java.api.tree.Tree;
@@ -129,8 +130,8 @@ public class TreeFactory {
   public CompilationUnitTreeImpl newCompilationUnit(
     AstNode spacing,
     Optional<ExpressionTree> packageDeclaration,
-    Optional<List<ImportTreeImpl>> importDeclarations,
-    Optional<List<AstNode>> typeDeclarations,
+    Optional<List<ImportClauseTree>> importDeclarations,
+    Optional<List<Tree>> typeDeclarations,
     AstNode eof) {
 
     List<AstNode> children = Lists.newArrayList();
@@ -146,18 +147,24 @@ public class TreeFactory {
       }
     }
 
+    ImmutableList.Builder<ImportClauseTree> imports = ImmutableList.builder();
     if (importDeclarations.isPresent()) {
-      children.addAll(importDeclarations.get());
+      for (ImportClauseTree child : importDeclarations.get()) {
+        children.add((AstNode) child);
+
+        if (!child.is(Kind.EMPTY_STATEMENT)) {
+          imports.add((ImportTreeImpl) child);
+        } else {
+          imports.add((EmptyStatementTreeImpl) child);
+        }
+      }
     }
 
     ImmutableList.Builder<Tree> types = ImmutableList.builder();
     if (typeDeclarations.isPresent()) {
-      children.addAll(typeDeclarations.get());
-
-      for (AstNode child : typeDeclarations.get()) {
-        if (!child.is(JavaPunctuator.SEMI)) {
-          types.add((Tree) child);
-        }
+      for (Tree child : typeDeclarations.get()) {
+        children.add((AstNode) child);
+        types.add(child);
       }
     }
 
@@ -165,7 +172,7 @@ public class TreeFactory {
 
     return new CompilationUnitTreeImpl(
       packageDeclaration.orNull(),
-      (List) importDeclarations.or(ImmutableList.<ImportTreeImpl>of()),
+      imports.build(),
       types.build(),
       packageAnnotations.build(),
       children);
@@ -185,6 +192,10 @@ public class TreeFactory {
     partial.addChild(semicolonTokenAstNode);
 
     return (ExpressionTree) partial;
+  }
+
+  public ImportClauseTree newEmptyImport(AstNode semicolonTokenAstNode) {
+    return new EmptyStatementTreeImpl(semicolonTokenAstNode);
   }
 
   public ImportTreeImpl newImportDeclaration(AstNode importTokenAstNode, Optional<AstNode> staticTokenAstNode, ExpressionTree qualifiedIdentifier,
@@ -211,6 +222,10 @@ public class TreeFactory {
   public ClassTreeImpl newTypeDeclaration(ModifiersTreeImpl modifiers, ClassTreeImpl partial) {
     partial.prependChildren(modifiers);
     return partial.completeModifiers(modifiers);
+  }
+
+  public Tree newEmptyType(AstNode semicolonTokenAstNode) {
+    return new EmptyStatementTreeImpl(semicolonTokenAstNode);
   }
 
   // End of compilation unit
@@ -495,7 +510,8 @@ public class TreeFactory {
       children.toArray(new AstNode[0]));
     newClass.completeWithIdentifier(identifier);
 
-    EnumConstantTreeImpl result = new EnumConstantTreeImpl(ModifiersTreeImpl.EMPTY, identifier, newClass);
+    @SuppressWarnings("unchecked")
+    EnumConstantTreeImpl result = new EnumConstantTreeImpl(modifiers((Optional<List<ModifierTree>>)(Optional<?>)annotations), identifier, newClass);
 
     result.addChild(identifier);
     result.addChild(newClass);
@@ -570,9 +586,8 @@ public class TreeFactory {
       children.toArray(new AstNode[0]));
   }
 
-  // TODO Need a proper strongly typed node for this
   public AstNode newEmptyMember(AstNode semicolonTokenAstNode) {
-    return semicolonTokenAstNode;
+    return new EmptyStatementTreeImpl(semicolonTokenAstNode);
   }
 
   public MethodTreeImpl completeGenericMethodOrConstructorDeclaration(TypeParameterListTreeImpl typeParameters, MethodTreeImpl partial) {
@@ -878,6 +893,9 @@ public class TreeFactory {
       partial.add(0, variable);
       partial.prependChildren(variable, comma);
 
+      // store the comma as endToken for the variable
+      variable.setEndToken(InternalSyntaxToken.create(comma));
+
       return partial;
     } else {
       return new FormalParametersListTreeImpl(variable);
@@ -925,6 +943,9 @@ public class TreeFactory {
       variable.completeModifiersAndType(modifiers, type);
     }
 
+    // store the semicolon as endToken for the last variable
+    variables.get(variables.size() - 1).setEndToken(InternalSyntaxToken.create(semicolonTokenAstNode));
+
     return variables;
   }
 
@@ -936,10 +957,18 @@ public class TreeFactory {
     children.add(variable);
 
     if (rests.isPresent()) {
+      VariableTreeImpl previousVariable = variable;
       for (Tuple<AstNode, VariableTreeImpl> rest : rests.get()) {
-        variables.add(rest.second());
-        children.add(rest.first());
-        children.add(rest.second());
+        VariableTreeImpl newVariable = rest.second();
+        InternalSyntaxToken separator = InternalSyntaxToken.create(rest.first());
+
+        variables.add(newVariable);
+        children.add(separator);
+        children.add(newVariable);
+
+        // store the separator
+        previousVariable.setEndToken(separator);
+        previousVariable = newVariable;
       }
     }
 
@@ -1994,7 +2023,15 @@ public class TreeFactory {
     ExpressionTree result = identifier;
 
     if (arguments.isPresent()) {
-      result = new MethodInvocationTreeImpl(identifier, typeArguments.orNull(), arguments.get(), identifier, arguments.get());
+      ArgumentListTreeImpl argumentListTree = arguments.get();
+      result = new MethodInvocationTreeImpl(
+        identifier,
+        typeArguments.orNull(),
+        argumentListTree.openParenToken(),
+        argumentListTree,
+        argumentListTree.closeParenToken(),
+        identifier,
+        argumentListTree);
     }
 
     return result;
@@ -2049,9 +2086,16 @@ public class TreeFactory {
 
           List<AstNode> children = Lists.newArrayList();
           children.add(memberSelect);
-          children.add((ArgumentListTreeImpl) methodInvocation.arguments());
+          ArgumentListTreeImpl arguments = (ArgumentListTreeImpl) methodInvocation.arguments();
+          children.add(arguments);
 
-          result = new MethodInvocationTreeImpl(memberSelect, methodInvocation.typeArguments(), methodInvocation.arguments(), children.toArray(new AstNode[0]));
+          result = new MethodInvocationTreeImpl(
+            memberSelect,
+            methodInvocation.typeArguments(),
+            arguments.openParenToken(),
+            arguments,
+            arguments.closeParenToken(),
+            children.toArray(new AstNode[0]));
         } else if (selector.is(Kind.NEW_CLASS)) {
           NewClassTreeImpl newClass = (NewClassTreeImpl) selector;
           newClass.prependChildren((AstNode) result);

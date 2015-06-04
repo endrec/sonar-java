@@ -26,12 +26,13 @@ import com.google.common.collect.Lists;
 import com.sonar.sslr.api.AstNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.sonar.api.rule.RuleKey;
+import org.sonar.api.utils.AnnotationUtils;
 import org.sonar.java.CharsetAwareVisitor;
 import org.sonar.java.SonarComponents;
 import org.sonar.java.ast.visitors.ComplexityVisitor;
 import org.sonar.java.ast.visitors.SonarSymbolTableVisitor;
 import org.sonar.java.resolve.SemanticModel;
+import org.sonar.plugins.java.api.JavaCheck;
 import org.sonar.plugins.java.api.JavaFileScanner;
 import org.sonar.plugins.java.api.JavaFileScannerContext;
 import org.sonar.plugins.java.api.tree.ClassTree;
@@ -39,12 +40,15 @@ import org.sonar.plugins.java.api.tree.CompilationUnitTree;
 import org.sonar.plugins.java.api.tree.MethodTree;
 import org.sonar.plugins.java.api.tree.Tree;
 import org.sonar.squidbridge.SquidAstVisitor;
+import org.sonar.squidbridge.annotations.SqaleLinearRemediation;
+import org.sonar.squidbridge.annotations.SqaleLinearWithOffsetRemediation;
 import org.sonar.squidbridge.api.CheckMessage;
 import org.sonar.squidbridge.api.SourceFile;
 import org.sonar.sslr.parser.LexerlessGrammar;
 
 import javax.annotation.Nullable;
 import java.io.File;
+import java.lang.annotation.Annotation;
 import java.nio.charset.Charset;
 import java.util.Arrays;
 import java.util.List;
@@ -63,16 +67,15 @@ public class VisitorsBridge extends SquidAstVisitor<LexerlessGrammar> implements
 
   @VisibleForTesting
   public VisitorsBridge(JavaFileScanner visitor) {
-    this(Arrays.asList(visitor), null);
+    this(Arrays.asList(visitor), Lists.<File>newArrayList(), null);
   }
 
   @VisibleForTesting
   public VisitorsBridge(JavaFileScanner visitor, List<File> projectClasspath) {
-    this(Arrays.asList(visitor), null);
-    this.projectClasspath = projectClasspath;
+    this(Arrays.asList(visitor), projectClasspath, null);
   }
 
-  public VisitorsBridge(Iterable visitors, @Nullable SonarComponents sonarComponents) {
+  public VisitorsBridge(Iterable visitors, List<File> projectClasspath, @Nullable SonarComponents sonarComponents) {
     ImmutableList.Builder<JavaFileScanner> scannersBuilder = ImmutableList.builder();
     for (Object visitor : visitors) {
       if (visitor instanceof JavaFileScanner) {
@@ -81,11 +84,7 @@ public class VisitorsBridge extends SquidAstVisitor<LexerlessGrammar> implements
     }
     this.scanners = scannersBuilder.build();
     this.sonarComponents = sonarComponents;
-    if (sonarComponents != null) {
-      projectClasspath = sonarComponents.getJavaClasspath();
-    } else {
-      projectClasspath = Lists.newArrayList();
-    }
+    this.projectClasspath = projectClasspath;
   }
 
   public void setAnalyseAccessors(boolean analyseAccessors) {
@@ -148,9 +147,11 @@ public class VisitorsBridge extends SquidAstVisitor<LexerlessGrammar> implements
     }
   }
 
-  private static class DefaultJavaFileScannerContext implements JavaFileScannerContext {
+  @VisibleForTesting
+  public static class DefaultJavaFileScannerContext implements JavaFileScannerContext {
     private final CompilationUnitTree tree;
-    private final SourceFile sourceFile;
+    @VisibleForTesting
+    public final SourceFile sourceFile;
     private final SemanticModel semanticModel;
     private final ComplexityVisitor complexityVisitor;
     private final File file;
@@ -169,24 +170,42 @@ public class VisitorsBridge extends SquidAstVisitor<LexerlessGrammar> implements
     }
 
     @Override
-    public void addIssue(Tree tree, RuleKey ruleKey, String message) {
-      addIssue(((JavaTree) tree).getLine(), ruleKey, message);
+    public void addIssue(Tree tree, JavaCheck javaCheck, String message) {
+      addIssue(((JavaTree) tree).getLine(), javaCheck, message, null);
     }
 
     @Override
-    public void addIssueOnFile(RuleKey ruleKey, String message) {
-      addIssue(-1, ruleKey, message);
+    public void addIssue(Tree tree, JavaCheck check, String message, @Nullable Double cost) {
+      addIssue(((JavaTree) tree).getLine(), check, message, cost);
     }
 
     @Override
-    public void addIssue(int line, RuleKey ruleKey, String message) {
-      Preconditions.checkNotNull(ruleKey);
+    public void addIssueOnFile(JavaCheck javaCheck, String message) {
+      addIssue(-1, javaCheck, message);
+    }
+
+    @Override
+    public void addIssue(int line, JavaCheck javaCheck, String message) {
+      addIssue(line, javaCheck, message, null);
+    }
+
+    @Override
+    public void addIssue(int line, JavaCheck javaCheck, String message, @Nullable Double cost) {
+      Preconditions.checkNotNull(javaCheck);
       Preconditions.checkNotNull(message);
-      CheckMessage checkMessage = new CheckMessage(ruleKey, message);
+      CheckMessage checkMessage = new CheckMessage(javaCheck, message);
       if (line > 0) {
         checkMessage.setLine(line);
       }
-      checkMessage.setBypassExclusion("NoSonar".equals(ruleKey.rule()));
+      if (cost == null) {
+        Annotation linear = AnnotationUtils.getAnnotation(javaCheck, SqaleLinearRemediation.class);
+        Annotation linearWithOffset = AnnotationUtils.getAnnotation(javaCheck, SqaleLinearWithOffsetRemediation.class);
+        if(linear != null || linearWithOffset != null) {
+          throw new IllegalStateException("A check annotated with a linear sqale function should provide an effort to fix");
+        }
+      } else {
+        checkMessage.setCost(cost);
+      }
       sourceFile.log(checkMessage);
     }
 

@@ -26,10 +26,10 @@ import org.sonar.check.Rule;
 import org.sonar.java.checks.methods.AbstractMethodDetection;
 import org.sonar.java.checks.methods.MethodInvocationMatcher;
 import org.sonar.java.checks.methods.TypeCriteria;
-import org.sonar.java.resolve.Type;
-import org.sonar.java.resolve.Type.ParametrizedTypeType;
-import org.sonar.java.resolve.Type.TypeVariableType;
-import org.sonar.java.resolve.Types;
+import org.sonar.java.resolve.JavaType;
+import org.sonar.java.resolve.JavaType.ParametrizedTypeJavaType;
+import org.sonar.java.resolve.JavaType.TypeVariableJavaType;
+import org.sonar.plugins.java.api.semantic.Type;
 import org.sonar.plugins.java.api.tree.ExpressionTree;
 import org.sonar.plugins.java.api.tree.MemberSelectExpressionTree;
 import org.sonar.plugins.java.api.tree.MethodInvocationTree;
@@ -39,6 +39,7 @@ import org.sonar.squidbridge.annotations.SqaleConstantRemediation;
 import org.sonar.squidbridge.annotations.SqaleSubCharacteristic;
 
 import javax.annotation.Nullable;
+
 import java.text.MessageFormat;
 import java.util.List;
 
@@ -80,43 +81,45 @@ public class CollectionInappropriateCallsCheck extends AbstractMethodDetection {
   }
 
   private Type getType(ExpressionTree tree) {
-    return (Type) tree.symbolType();
+    return tree.symbolType();
   }
 
   private Type getMethodOwner(MethodInvocationTree mit) {
     if (mit.methodSelect().is(Kind.MEMBER_SELECT)) {
       return getType(((MemberSelectExpressionTree) mit.methodSelect()).expression());
     }
-    return (Type) mit.symbol().owner().type();
+    return mit.symbol().owner().type();
   }
 
   @Nullable
   private Type getTypeParameter(Type collectionType) {
-    if (collectionType instanceof ParametrizedTypeType) {
-      return getFirstTypeParameter((ParametrizedTypeType) collectionType);
+    if (collectionType instanceof ParametrizedTypeJavaType) {
+      return getFirstTypeParameter((ParametrizedTypeJavaType) collectionType);
     }
     return null;
   }
 
   @Nullable
-  private Type getFirstTypeParameter(ParametrizedTypeType parametrizedTypeType) {
-    for (TypeVariableType variableType : parametrizedTypeType.typeParameters()) {
+  private Type getFirstTypeParameter(ParametrizedTypeJavaType parametrizedTypeType) {
+    for (TypeVariableJavaType variableType : parametrizedTypeType.typeParameters()) {
       return parametrizedTypeType.substitution(variableType);
     }
     return null;
   }
 
   private boolean isArgumentCompatible(Type argumentType, Type collectionParameterType) {
-    return isSubtypeOf(argumentType, collectionParameterType) || isSubtypeOf(collectionParameterType, argumentType) || autoboxing(argumentType, collectionParameterType);
+    return isSubtypeOf(argumentType.erasure(), collectionParameterType.erasure())
+        || isSubtypeOf(collectionParameterType.erasure(), argumentType.erasure())
+        || autoboxing(argumentType, collectionParameterType);
   }
 
   private boolean isSubtypeOf(Type type, Type superType) {
-    return new Types().isSubtype(type.erasure(), superType.erasure());
+    return type.isSubtypeOf(superType);
   }
 
   private boolean autoboxing(Type argumentType, Type collectionParameterType) {
     return argumentType.isPrimitive()
-      && collectionParameterType.isPrimitiveWrapper()
-      && isSubtypeOf(argumentType.primitiveWrapperType(), collectionParameterType);
+      && ((JavaType) collectionParameterType).isPrimitiveWrapper()
+      && isSubtypeOf(((JavaType)argumentType).primitiveWrapperType(), collectionParameterType);
   }
 }

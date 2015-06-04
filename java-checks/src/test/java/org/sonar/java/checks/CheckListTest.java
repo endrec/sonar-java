@@ -59,7 +59,6 @@ public class CheckListTest {
   @Test
   public void test() {
     List<Class> checks = CheckList.getChecks();
-
     for (Class cls : checks) {
       String testName = '/' + cls.getName().replace('.', '/') + "Test.class";
       assertThat(getClass().getResource(testName))
@@ -68,10 +67,13 @@ public class CheckListTest {
     }
 
     Set<String> keys = Sets.newHashSet();
+    Set<String> names = Sets.newHashSet();
     List<Rule> rules = new AnnotationRuleParser().parse("repositoryKey", checks);
     for (Rule rule : rules) {
       assertThat(keys).as("Duplicate key " + rule.getKey()).excludes(rule.getKey());
+      assertThat(names).as("Duplicate name "+rule.getKey()+" : " + rule.getName()).excludes(rule.getName());
       keys.add(rule.getKey());
+      names.add(rule.getName());
 
       assertThat(getClass().getResource("/org/sonar/l10n/java/rules/" + CheckList.REPOSITORY_KEY + "/" + rule.getKey() + ".html"))
         .overridingErrorMessage("No description for " + rule.getKey())
@@ -100,9 +102,8 @@ public class CheckListTest {
    */
   @Test
   public void should_not_fail_on_invalid_file() throws Exception {
-    List<Class> checks = CheckList.getChecks();
 
-    for (Class check : checks) {
+    for (Class check : CheckList.getChecks()) {
       CodeVisitor visitor = (CodeVisitor) check.newInstance();
       if (visitor instanceof SquidAstVisitor) {
         JavaAstScanner.scanSingleFile(new File("src/test/files/CheckListParseErrorTest.java"), (SquidAstVisitor) visitor);

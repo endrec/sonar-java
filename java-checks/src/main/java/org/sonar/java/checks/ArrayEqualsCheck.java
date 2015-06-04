@@ -19,7 +19,6 @@
  */
 package org.sonar.java.checks;
 
-import org.sonar.api.rule.RuleKey;
 import org.sonar.api.server.rule.RulesDefinition;
 import org.sonar.check.Priority;
 import org.sonar.check.Rule;
@@ -29,22 +28,18 @@ import org.sonar.plugins.java.api.tree.BaseTreeVisitor;
 import org.sonar.plugins.java.api.tree.MemberSelectExpressionTree;
 import org.sonar.plugins.java.api.tree.MethodInvocationTree;
 import org.sonar.plugins.java.api.tree.Tree;
-import org.sonar.squidbridge.annotations.ActivatedByDefault;
 import org.sonar.squidbridge.annotations.SqaleConstantRemediation;
 import org.sonar.squidbridge.annotations.SqaleSubCharacteristic;
 
 @Rule(
-  key = ArrayEqualsCheck.RULE_KEY,
+  key = "S1294",
   name = "The Array.equals(Object obj) method should not be used",
-  tags = {"bug"},
+  status = "DEPRECATED",
+  tags = {},
   priority = Priority.CRITICAL)
-@ActivatedByDefault
 @SqaleSubCharacteristic(RulesDefinition.SubCharacteristics.INSTRUCTION_RELIABILITY)
 @SqaleConstantRemediation("5min")
 public class ArrayEqualsCheck extends BaseTreeVisitor implements JavaFileScanner {
-
-  public static final String RULE_KEY = "S1294";
-  private final RuleKey ruleKey = RuleKey.of(CheckList.REPOSITORY_KEY, RULE_KEY);
 
   private JavaFileScannerContext context;
 
@@ -59,7 +54,7 @@ public class ArrayEqualsCheck extends BaseTreeVisitor implements JavaFileScanner
     if (tree.methodSelect().is(Tree.Kind.MEMBER_SELECT)) {
       MemberSelectExpressionTree mset = (MemberSelectExpressionTree) tree.methodSelect();
       if ("equals".equals(mset.identifier().name()) && mset.expression().symbolType().isArray()) {
-        context.addIssue(tree, ruleKey, "Use the '==' operator instead of calling the equals() method to prevent any misunderstandings");
+        context.addIssue(tree, this, "Use the '==' operator instead of calling the equals() method to prevent any misunderstandings");
       }
     }
     super.visitMethodInvocation(tree);

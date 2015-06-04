@@ -24,16 +24,15 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
 import com.google.common.collect.HashMultimap;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import org.sonar.java.model.AbstractTypedTree;
 import org.sonar.java.model.JavaTree;
+import org.sonar.plugins.java.api.semantic.Symbol;
 import org.sonar.plugins.java.api.tree.BaseTreeVisitor;
 import org.sonar.plugins.java.api.tree.CompilationUnitTree;
 import org.sonar.plugins.java.api.tree.IdentifierTree;
 import org.sonar.plugins.java.api.tree.Tree;
-import org.sonar.plugins.java.api.semantic.Symbol;
 
 import javax.annotation.Nullable;
 import java.io.File;
@@ -47,7 +46,6 @@ public class SemanticModel {
 
   private final BiMap<Tree, Symbol> symbolsTree = HashBiMap.create();
   private Multimap<Symbol, IdentifierTree> usagesTree = HashMultimap.create();
-  private Map<IdentifierTree,Symbol> refersTo = Maps.newHashMap();
 
   private final Map<Symbol, Resolve.Env> symbolEnvs = Maps.newHashMap();
   private final BiMap<Tree, Resolve.Env> envs = HashBiMap.create();
@@ -64,11 +62,11 @@ public class SemanticModel {
     try {
       Resolve resolve = new Resolve(symbols, bytecodeCompleter, parametrizedTypeCache);
       TypeAndReferenceSolver typeAndReferenceSolver = new TypeAndReferenceSolver(semanticModel, symbols, resolve, parametrizedTypeCache);
-      new FirstPass(semanticModel, symbols, resolve, typeAndReferenceSolver).visitCompilationUnit(tree);
+      new FirstPass(semanticModel, symbols, resolve, parametrizedTypeCache, typeAndReferenceSolver).visitCompilationUnit(tree);
       typeAndReferenceSolver.visitCompilationUnit(tree);
       new LabelsVisitor(semanticModel).visitCompilationUnit(tree);
     } finally {
-      handleMissingTypes(symbols, tree);
+      handleMissingTypes(tree);
     }
     return semanticModel;
   }
@@ -77,25 +75,18 @@ public class SemanticModel {
     bytecodeCompleter.done();
   }
 
-
-  public static void handleMissingTypes(Tree tree) {
-    BytecodeCompleter bytecodeCompleter = new BytecodeCompleter(ImmutableList.<File>of(), new ParametrizedTypeCache());
-    Symbols symbols = new Symbols(bytecodeCompleter);
-    handleMissingTypes(symbols, tree);
-  }
-
   /**
    * Handles missing types in Syntax Tree to prevent NPE in subsequent steps of analysis.
    */
-  private static void handleMissingTypes(final Symbols symbols, Tree tree) {
+  public static void handleMissingTypes(Tree tree) {
     // (Godin): Another and probably better (safer) way to do the same - is to assign default value during creation of nodes, so that to guarantee that this step won't be skipped.
     tree.accept(new BaseTreeVisitor() {
       @Override
       protected void scan(@Nullable Tree tree) {
         if (tree instanceof AbstractTypedTree) {
           AbstractTypedTree typedNode = (AbstractTypedTree) tree;
-          if (typedNode.getSymbolType() == null) {
-            typedNode.setType(symbols.unknownType);
+          if (!typedNode.isTypeSet()) {
+            typedNode.setType(Symbols.unknownType);
           }
         }
         super.scan(tree);
@@ -154,10 +145,12 @@ public class SemanticModel {
     symbolsTree.put(tree, symbol);
   }
 
+  @Nullable
   public Symbol getSymbol(Tree tree) {
     return symbolsTree.get(tree);
   }
 
+  @Nullable
   public Tree getTree(Symbol symbol) {
     return symbolsTree.inverse().get(symbol);
   }
@@ -165,20 +158,11 @@ public class SemanticModel {
 
   public void associateReference(IdentifierTree tree, Symbol symbol) {
     usagesTree.put(symbol, tree);
-    refersTo.put(tree, symbol);
-  }
-
-  public Symbol getReference(IdentifierTree tree) {
-    return refersTo.get(tree);
   }
 
   @VisibleForTesting
   Map<Tree, Symbol> getSymbolsTree() {
     return Collections.unmodifiableMap(symbolsTree);
-  }
-
-  public Collection<IdentifierTree> getUsages(Symbol symbol) {
-    return Collections.unmodifiableCollection(usagesTree.get(symbol));
   }
 
   @VisibleForTesting

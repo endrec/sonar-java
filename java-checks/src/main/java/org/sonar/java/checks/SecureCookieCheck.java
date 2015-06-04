@@ -50,7 +50,7 @@ import java.util.List;
 @SqaleConstantRemediation("5min")
 public class SecureCookieCheck extends SubscriptionBaseVisitor {
 
-  private List<Symbol> unsecuredCookies = Lists.newArrayList();
+  private List<Symbol.VariableSymbol> unsecuredCookies = Lists.newArrayList();
 
   @Override
   public List<Tree.Kind> nodesToVisit() {
@@ -61,8 +61,8 @@ public class SecureCookieCheck extends SubscriptionBaseVisitor {
   public void scanFile(JavaFileScannerContext context) {
     unsecuredCookies.clear();
     super.scanFile(context);
-    for (Symbol unsecuredCookie : unsecuredCookies) {
-      addIssue(getSemanticModel().getTree(unsecuredCookie), "Add the \"secure\" attribute to this cookie");
+    for (Symbol.VariableSymbol unsecuredCookie : unsecuredCookies) {
+      addIssue(unsecuredCookie.declaration(), "Add the \"secure\" attribute to this cookie");
     }
   }
 
@@ -71,29 +71,38 @@ public class SecureCookieCheck extends SubscriptionBaseVisitor {
     if (hasSemantic()) {
       if (tree.is(Tree.Kind.VARIABLE)) {
         VariableTree variableTree = (VariableTree) tree;
-        Type type = variableTree.type().symbolType();
-        if (type.is("javax.servlet.http.Cookie") && isConstructorInitialized(variableTree)) {
-          Symbol variableSymbol = getSemanticModel().getSymbol(variableTree);
-          //Ignore field variables
-          if (variableSymbol.owner().isMethodSymbol()) {
-            unsecuredCookies.add(variableSymbol);
-          }
-        }
+        addToUnsecuredCookies(variableTree);
       } else if (tree.is(Tree.Kind.METHOD_INVOCATION)) {
         MethodInvocationTree mit = (MethodInvocationTree) tree;
-        if (isSetSecureCall(mit) && mit.methodSelect().is(Tree.Kind.MEMBER_SELECT)) {
-          MemberSelectExpressionTree mse = (MemberSelectExpressionTree) mit.methodSelect();
-          if (mse.expression().is(Tree.Kind.IDENTIFIER)) {
-            Symbol reference = getSemanticModel().getReference((IdentifierTree) mse.expression());
-            unsecuredCookies.remove(reference);
-          }
-        }
+        checkSecureCall(mit);
+      }
+    }
+  }
+
+  private void addToUnsecuredCookies(VariableTree variableTree) {
+    Type type = variableTree.type().symbolType();
+    if (type.is("javax.servlet.http.Cookie") && isConstructorInitialized(variableTree)) {
+      Symbol variableSymbol = variableTree.symbol();
+      //Ignore field variables
+      if (variableSymbol.isVariableSymbol() && variableSymbol.owner().isMethodSymbol()) {
+        unsecuredCookies.add((Symbol.VariableSymbol) variableSymbol);
+      }
+    }
+  }
+
+  private void checkSecureCall(MethodInvocationTree mit) {
+    if (isSetSecureCall(mit) && mit.methodSelect().is(Tree.Kind.MEMBER_SELECT)) {
+      MemberSelectExpressionTree mse = (MemberSelectExpressionTree) mit.methodSelect();
+      if (mse.expression().is(Tree.Kind.IDENTIFIER)) {
+        Symbol reference = ((IdentifierTree) mse.expression()).symbol();
+        unsecuredCookies.remove(reference);
       }
     }
   }
 
   private boolean isConstructorInitialized(VariableTree variableTree) {
-    return variableTree.initializer() != null && variableTree.initializer().is(Tree.Kind.NEW_CLASS);
+    ExpressionTree initializer = variableTree.initializer();
+    return initializer != null && initializer.is(Tree.Kind.NEW_CLASS);
   }
 
   private boolean isSetSecureCall(MethodInvocationTree mit) {

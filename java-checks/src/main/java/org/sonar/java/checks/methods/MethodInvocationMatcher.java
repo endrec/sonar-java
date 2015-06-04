@@ -22,9 +22,10 @@ package org.sonar.java.checks.methods;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.sonar.java.model.expression.NewClassTreeImpl;
-import org.sonar.java.resolve.SemanticModel;
 import org.sonar.plugins.java.api.semantic.Symbol;
+import org.sonar.plugins.java.api.semantic.Symbol.MethodSymbol;
 import org.sonar.plugins.java.api.semantic.Type;
+import org.sonar.plugins.java.api.tree.ExpressionTree;
 import org.sonar.plugins.java.api.tree.IdentifierTree;
 import org.sonar.plugins.java.api.tree.MemberSelectExpressionTree;
 import org.sonar.plugins.java.api.tree.MethodInvocationTree;
@@ -37,8 +38,8 @@ public class MethodInvocationMatcher {
 
   private TypeCriteria typeDefinition;
   private TypeCriteria callSite;
-  private String methodName;
-  private List<String> parameterTypes;
+  private NameCriteria methodName;
+  private List<TypeCriteria> parameterTypes;
 
   MethodInvocationMatcher() {
     parameterTypes = Lists.newArrayList();
@@ -49,6 +50,12 @@ public class MethodInvocationMatcher {
   }
 
   public MethodInvocationMatcher name(String methodName) {
+    this.methodName = NameCriteria.is(methodName);
+    return this;
+  }
+
+  public MethodInvocationMatcher name(NameCriteria methodName) {
+    Preconditions.checkState(this.methodName == null);
     this.methodName = methodName;
     return this;
   }
@@ -72,7 +79,13 @@ public class MethodInvocationMatcher {
 
   public MethodInvocationMatcher addParameter(String fullyQualifiedTypeParameterName) {
     Preconditions.checkState(parameterTypes != null);
-    parameterTypes.add(fullyQualifiedTypeParameterName);
+    parameterTypes.add(TypeCriteria.is(fullyQualifiedTypeParameterName));
+    return this;
+  }
+
+  public MethodInvocationMatcher addParameter(TypeCriteria parameterTypeCriteria) {
+    Preconditions.checkState(parameterTypes != null);
+    parameterTypes.add(parameterTypeCriteria);
     return this;
   }
 
@@ -82,23 +95,23 @@ public class MethodInvocationMatcher {
     return this;
   }
 
-  public boolean matches(NewClassTree newClassTree, SemanticModel semanticModel) {
+  public boolean matches(NewClassTree newClassTree) {
     NewClassTreeImpl newClassTreeImpl = (NewClassTreeImpl) newClassTree;
-    return matches(newClassTreeImpl.getConstructorIdentifier(), null, semanticModel);
+    return matches(newClassTreeImpl.getConstructorIdentifier(), null);
   }
 
-  public boolean matches(MethodInvocationTree mit, SemanticModel semanticModel) {
+  public boolean matches(MethodInvocationTree mit) {
     IdentifierTree id = getIdentifier(mit);
     if (id != null) {
-      return matches(id, getCallSiteType(mit, semanticModel), semanticModel);
+      return matches(id, getCallSiteType(mit));
     }
     return false;
   }
 
-  private boolean matches(IdentifierTree id, Type callSiteType, SemanticModel semanticModel) {
-    Symbol symbol = semanticModel.getReference(id);
-    if (symbol != null && symbol.isMethodSymbol()) {
-      Symbol.MethodSymbolSemantic methodSymbol = (Symbol.MethodSymbolSemantic) symbol;
+  private boolean matches(IdentifierTree id, Type callSiteType) {
+    Symbol symbol = id.symbol();
+    if (symbol.isMethodSymbol()) {
+      Symbol.MethodSymbol methodSymbol = (Symbol.MethodSymbol) symbol;
       if (isSearchedMethod(methodSymbol, callSiteType)) {
         return true;
       }
@@ -106,18 +119,22 @@ public class MethodInvocationMatcher {
     return false;
   }
 
-  private Type getCallSiteType(MethodInvocationTree mit, SemanticModel semanticModel) {
-    if (mit.methodSelect().is(Tree.Kind.IDENTIFIER)) {
-      return semanticModel.getEnclosingClass(mit).type();
-    } else if (mit.methodSelect().is(Tree.Kind.MEMBER_SELECT)) {
-      MemberSelectExpressionTree methodSelect = (MemberSelectExpressionTree) mit.methodSelect();
-      return methodSelect.expression().symbolType();
+  private Type getCallSiteType(MethodInvocationTree mit) {
+    ExpressionTree methodSelect = mit.methodSelect();
+    if (methodSelect.is(Tree.Kind.IDENTIFIER)) {
+      Symbol.TypeSymbol enclosingClassSymbol = ((IdentifierTree) methodSelect).symbol().enclosingClass();
+      if (enclosingClassSymbol != null) {
+        return enclosingClassSymbol.type();
+      }
+    } else if (methodSelect.is(Tree.Kind.MEMBER_SELECT)) {
+      MemberSelectExpressionTree memberSelect = (MemberSelectExpressionTree) methodSelect;
+      return memberSelect.expression().symbolType();
     }
     return null;
   }
 
-  private boolean isSearchedMethod(Symbol.MethodSymbolSemantic symbol, Type callSiteType) {
-    boolean result = symbol.name().equals(methodName) && parametersAcceptable(symbol);
+  private boolean isSearchedMethod(MethodSymbol symbol, Type callSiteType) {
+    boolean result = nameAcceptable(symbol) && parametersAcceptable(symbol);
     if (typeDefinition != null) {
       result &= typeDefinition.matches(symbol.owner().type());
     }
@@ -127,16 +144,20 @@ public class MethodInvocationMatcher {
     return result;
   }
 
-  private boolean parametersAcceptable(Symbol.MethodSymbolSemantic methodSymbol) {
+  private boolean nameAcceptable(MethodSymbol symbol) {
+    return methodName != null && methodName.matches(symbol.name());
+  }
+
+  private boolean parametersAcceptable(MethodSymbol methodSymbol) {
     if (parameterTypes == null) {
       return true;
     }
     List<Type> parametersTypes = methodSymbol.parameterTypes();
-    List<String> arguments = parameterTypes;
+    List<TypeCriteria> arguments = parameterTypes;
     if (parametersTypes.size() == arguments.size()) {
       int i = 0;
       for (Type parameterType : parametersTypes) {
-        if (!parameterType.is(arguments.get(i))) {
+        if (!arguments.get(i).matches(parameterType)) {
           return false;
         }
         i++;
@@ -156,5 +177,4 @@ public class MethodInvocationMatcher {
     }
     return id;
   }
-
 }

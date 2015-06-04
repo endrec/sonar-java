@@ -20,7 +20,6 @@
 package org.sonar.java.checks;
 
 import com.google.common.collect.Sets;
-import org.sonar.api.rule.RuleKey;
 import org.sonar.api.server.rule.RulesDefinition;
 import org.sonar.check.Priority;
 import org.sonar.check.Rule;
@@ -41,19 +40,17 @@ import org.sonar.squidbridge.annotations.SqaleSubCharacteristic;
 import java.util.Set;
 
 @Rule(
-  key = ForLoopCounterChangedCheck.RULE_KEY,
-  name = "Loop invariants should not be calculated inside the loop",
-  tags = {"performance"},
+  key = "ForLoopCounterChangedCheck",
+  name = "\"for\" loop stop conditions should be invariant",
+  tags = {"misra", "pitfall"},
   priority = Priority.MAJOR)
 @ActivatedByDefault
-@SqaleSubCharacteristic(RulesDefinition.SubCharacteristics.CPU_EFFICIENCY)
-@SqaleConstantRemediation("3min")
+@SqaleSubCharacteristic(RulesDefinition.SubCharacteristics.LOGIC_RELIABILITY)
+@SqaleConstantRemediation("10min")
 public class ForLoopCounterChangedCheck extends BaseTreeVisitor implements JavaFileScanner {
 
-  public static final String RULE_KEY = "ForLoopCounterChangedCheck";
   private final Set<String> loopCounters = Sets.newHashSet();
   private JavaFileScannerContext context;
-  private RuleKey ruleKey = RuleKey.of(CheckList.REPOSITORY_KEY, RULE_KEY);
 
   @Override
   public void scanFile(JavaFileScannerContext context) {
@@ -104,9 +101,8 @@ public class ForLoopCounterChangedCheck extends BaseTreeVisitor implements JavaF
 
   private void checkIdentifier(IdentifierTree identifierTree) {
     if (loopCounters.contains(identifierTree.name())) {
-      context.addIssue(identifierTree, ruleKey, "Refactor the code in order to not assign to this loop counter from within the loop body.");
+      context.addIssue(identifierTree, this, "Refactor the code in order to not assign to this loop counter from within the loop body.");
     }
   }
-
 
 }

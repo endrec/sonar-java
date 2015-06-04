@@ -25,8 +25,8 @@ import org.sonar.api.server.rule.RulesDefinition;
 import org.sonar.check.Priority;
 import org.sonar.check.Rule;
 import org.sonar.java.checks.methods.MethodInvocationMatcher;
-import org.sonar.plugins.java.api.semantic.Symbol;
 import org.sonar.plugins.java.api.JavaFileScannerContext;
+import org.sonar.plugins.java.api.semantic.Symbol;
 import org.sonar.plugins.java.api.tree.ExpressionTree;
 import org.sonar.plugins.java.api.tree.IdentifierTree;
 import org.sonar.plugins.java.api.tree.InstanceOfTree;
@@ -81,21 +81,21 @@ public class NonSerializableWriteCheck extends SubscriptionBaseVisitor {
   private void visitInstanceOf(InstanceOfTree instanceOfTree) {
     ExpressionTree expression = instanceOfTree.expression();
     if (expression.is(Tree.Kind.IDENTIFIER) && instanceOfTree.type().symbolType().is("java.io.Serializable")) {
-      testedSymbols.add(getSemanticModel().getReference((IdentifierTree) expression));
+      testedSymbols.add(((IdentifierTree) expression).symbol());
     }
   }
 
   // If we met a test such as "x instanceof Serializable", we suppose that symbol x is Serializable
   private boolean isTestedSymbol(ExpressionTree tree) {
     if (tree.is(Tree.Kind.IDENTIFIER)) {
-      Symbol symbol = getSemanticModel().getReference((IdentifierTree) tree);
+      Symbol symbol = ((IdentifierTree) tree).symbol();
       return testedSymbols.contains(symbol);
     }
     return false;
   }
 
   private void visitMethodInvocation(MethodInvocationTree methodInvocation) {
-    if (WRITE_OBJECT_MATCHER.matches(methodInvocation, getSemanticModel())) {
+    if (WRITE_OBJECT_MATCHER.matches(methodInvocation)) {
       ExpressionTree argument = methodInvocation.arguments().get(0);
       if (!isAcceptableType(argument.symbolType()) && !isTestedSymbol(argument)) {
         addIssue(methodInvocation, "Make the \"" + argument.symbolType().fullyQualifiedName() + "\" class \"Serializable\" or don't write it.");
